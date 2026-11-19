@@ -108,9 +108,20 @@ FileConfig LoadFileConfig() {
     LOG_INFO(Core_Vr, "VR settings: {} ({})", path.string(),
              file ? "read" : "not there, defaults used");
     if (file) {
-        const auto json = nlohmann::json::parse(file, nullptr, false);
+        nlohmann::json json;
+        try {
+            json = nlohmann::json::parse(file);
+        } catch (const nlohmann::json::parse_error& error) {
+            // Says where: a comma after the last entry, a % after a number, or quotes that are
+            // not plain " are the usual causes.
+            LOG_ERROR(Core_Vr, "Ignoring {}, it is not valid JSON: {}", path.string(),
+                      error.what());
+            json = nlohmann::json::value_t::discarded;
+        }
         if (json.is_discarded()) {
-            LOG_ERROR(Core_Vr, "Ignoring malformed {}", path.string());
+            // (Reported above.)
+        } else if (!json.is_object()) {
+            LOG_ERROR(Core_Vr, "Ignoring {}: it has to be one {{ ... }} object", path.string());
         } else {
             const std::string mode = json.value("headset", "auto");
             result.mode = mode == "on"    ? HeadsetMode::On
