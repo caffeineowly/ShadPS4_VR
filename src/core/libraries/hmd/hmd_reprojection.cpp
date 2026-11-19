@@ -286,27 +286,22 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
         }
     };
     if (param.texture[0][0] == param.texture[0][1]) {
-        // Both eyes in one texture, side by side: each eye is its half.
+        // Both eyes in one texture, side by side: each eye is its half, and the UV of the left
+        // eye says how far its picture reaches to each side of straight ahead.
         frame.eye_rects = {{{0.0f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}}};
+        const float sx = std::abs(uv_left.scale_x);
+        const float sy = std::abs(uv_left.scale_y);
+        frame.fov = {
+            .tan_out = uv_left.offset_x / sx,
+            .tan_in = (0.5f - uv_left.offset_x) / sx,
+            .tan_top = uv_left.offset_y / sy,
+            .tan_bottom = (1.0f - uv_left.offset_y) / sy,
+        };
+    } else {
+        frame.fov = FovFromUv(uv_left);
     }
     flip(0);
     flip(1);
-    // How far the left eye's picture reaches to each side of straight ahead, at the edges of
-    // its part of the texture as it is shown (after any flip): the UV gives the tangent at a
-    // texture coordinate, uv = tan * scale + offset, with the tangent growing to the right and
-    // downwards. Taken before the flip, a texture stored bottom-up would have its top and
-    // bottom reaches swapped, and the headset would show the picture misplaced.
-    {
-        const auto& rect = frame.eye_rects[0];
-        const auto tan_x = [&](float u) { return (u - uv_left.offset_x) / uv_left.scale_x; };
-        const auto tan_y = [&](float v) { return (v - uv_left.offset_y) / uv_left.scale_y; };
-        frame.fov = {
-            .tan_out = -tan_x(rect[0]),
-            .tan_in = tan_x(rect[0] + rect[2]),
-            .tan_top = -tan_y(rect[1]),
-            .tan_bottom = tan_y(rect[1] + rect[3]),
-        };
-    }
     if (!(std::isfinite(frame.fov.tan_out) && frame.fov.tan_out > 0.1f &&
           std::isfinite(frame.fov.tan_in) && frame.fov.tan_in > 0.1f &&
           std::isfinite(frame.fov.tan_top) && frame.fov.tan_top > 0.1f &&
