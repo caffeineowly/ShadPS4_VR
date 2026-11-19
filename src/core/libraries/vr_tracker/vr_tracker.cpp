@@ -478,7 +478,9 @@ s32 PS4_SYSV_ABI sceVrTrackerGpuWait(const OrbisVrTrackerGpuWaitParam* param) {
 }
 
 s32 PS4_SYSV_ABI sceVrTrackerGpuWaitAndCpuProcess() {
-    LOG_ERROR(Lib_VrTracker, "(STUBBED) called");
+    // Nothing to wait for or process: the host tracks the devices (as in sceVrTrackerGpuWait and
+    // sceVrTrackerCpuProcess).
+    LOG_TRACE(Lib_VrTracker, "called");
     if (!g_library_initialized) {
         return ORBIS_VR_TRACKER_ERROR_NOT_INIT;
     }
