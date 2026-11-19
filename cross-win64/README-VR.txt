@@ -36,7 +36,9 @@ logs in it); otherwise they go to %APPDATA%\shadPS4.
 
 Configuration (optional)
 ------------------------
-vr.json in the user folder (see vr.json.example):
+vr.json in the user folder (see vr.json.example). That is "user" next to
+shadps4.exe if that folder exists, otherwise %APPDATA%\shadPS4 (where launchers
+usually run it). The log says which file it read: look for "VR settings:".
   "headset": "auto" | "on" | "off"
   "fov": "headset" | "psvr"   the field of view the game is told of: your headset's
                                own (default; fills the view) or a PlayStation VR's

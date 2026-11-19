@@ -161,12 +161,6 @@ bool PlausibleEyeImage(const AmdGpu::Image& image) {
            image.Address() < 0x10000000000ULL;
 }
 
-bool PlausibleUv(const OrbisHmdReprojectionEyeUv& uv) {
-    const auto in = [](float v, float lo, float hi) { return std::isfinite(v) && v > lo && v < hi; };
-    return in(uv.scale_x, 0.1f, 4.0f) && in(uv.scale_y, 0.1f, 4.0f) &&
-           in(uv.offset_x, 0.05f, 0.95f) && in(uv.offset_y, 0.05f, 0.95f);
-}
-
 bool PlausiblePose(const float* p) {
     for (int i = 0; i < 7; ++i) {
         if (!std::isfinite(p[i])) {

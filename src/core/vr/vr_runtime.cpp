@@ -105,6 +105,8 @@ FileConfig LoadFileConfig() {
     FileConfig result;
     const auto path = Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "vr.json";
     std::ifstream file{path};
+    LOG_INFO(Core_Vr, "VR settings: {} ({})", path.string(),
+             file ? "read" : "not there, defaults used");
     if (file) {
         const auto json = nlohmann::json::parse(file, nullptr, false);
         if (json.is_discarded()) {
