@@ -27,6 +27,8 @@ layout (push_constant) uniform settings {
     // picture is sharpened by sharpen_centre instead: where FSR 1 enlarged the title's scene.
     float sharpen_centre;
     float centre_radius;
+    // The part of the texture drawn: u, v, width, height (an eye of a side by side texture).
+    vec4 uv_rect;
 } pp;
 
 const float cutoff = 0.0031308, a = 1.055, b = 0.055, d = 12.92;
@@ -59,13 +61,14 @@ vec3 encode(vec3 rgb) {
     return gamma(rgb);
 }
 
-// What goes to the display for the picture at a place.
+// What goes to the display for the picture at a place (in the texture's coordinates).
 vec3 shown(vec2 at) {
     return encode(textureLod(texSampler, at, 0.0).rgb);
 }
 
 void main() {
-    vec4 color_linear = texture(texSampler, uv);
+    vec2 st = pp.uv_rect.xy + uv * pp.uv_rect.zw;
+    vec4 color_linear = texture(texSampler, st);
     vec3 here = encode(color_linear.rgb);
     vec2 from_middle = uv * 2.0 - 1.0;
     float sharpen = dot(from_middle, from_middle) < pp.centre_radius * pp.centre_radius
@@ -75,10 +78,10 @@ void main() {
         // Contrast adaptive sharpening: a pixel is pushed away from the four next to it, the
         // more the less they differ already, and never beyond black or white.
         vec2 texel = 1.0 / vec2(textureSize(texSampler, 0));
-        vec3 above = shown(uv - vec2(0.0, texel.y));
-        vec3 below = shown(uv + vec2(0.0, texel.y));
-        vec3 left = shown(uv - vec2(texel.x, 0.0));
-        vec3 right = shown(uv + vec2(texel.x, 0.0));
+        vec3 above = shown(st - vec2(0.0, texel.y));
+        vec3 below = shown(st + vec2(0.0, texel.y));
+        vec3 left = shown(st - vec2(texel.x, 0.0));
+        vec3 right = shown(st + vec2(texel.x, 0.0));
         vec3 darkest = min(min(min(above, below), min(left, right)), here);
         vec3 brightest = max(max(max(above, below), max(left, right)), here);
         vec3 room = sqrt(clamp(min(darkest, 1.0 - brightest) / max(brightest, vec3(1e-5)),

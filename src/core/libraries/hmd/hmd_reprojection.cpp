@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -58,11 +59,14 @@ Reprojection g_reprojection;
 Core::Vr::Fov FovFromUv(const OrbisHmdReprojectionEyeUv& left_eye) {
     // uv = tan * scale + offset, so the image edges (uv 0 and 1) give the half angles back.
     // On the left eye the left edge is the temple side.
+    // (A scale may be negative - Unity's v runs the other way - only its size counts.)
+    const float sx = std::abs(left_eye.scale_x);
+    const float sy = std::abs(left_eye.scale_y);
     return {
-        .tan_out = left_eye.offset_x / left_eye.scale_x,
-        .tan_in = (1.0f - left_eye.offset_x) / left_eye.scale_x,
-        .tan_top = left_eye.offset_y / left_eye.scale_y,
-        .tan_bottom = (1.0f - left_eye.offset_y) / left_eye.scale_y,
+        .tan_out = left_eye.offset_x / sx,
+        .tan_in = (1.0f - left_eye.offset_x) / sx,
+        .tan_top = left_eye.offset_y / sy,
+        .tan_bottom = (1.0f - left_eye.offset_y) / sy,
     };
 }
 
@@ -130,7 +134,7 @@ s32 SubmitFrame(Libraries::VideoOut::HmdFrame& frame) {
 bool Readable(VAddr addr, u64 size) {
     // Guest pointers: 8-byte aligned, within the 40 bits the console's GPU can address, above
     // the null page area. (Filters plain numbers out before the memory manager is asked.)
-    if (addr < 0x400000 || addr >= 0x10000000000ULL || (addr & 7) != 0) {
+    if (addr < 0x400000 || addr >= 0x10000000000ULL || (addr & 3) != 0) {
         return false;
     }
     void* start{};
@@ -187,121 +191,61 @@ void DumpGuest(std::string_view what, VAddr addr, u32 size) {
     }
 }
 
-constexpr u32 ScanBytes = 0x400;
+constexpr u32 DumpBytes = 0x80;
 
-struct MultilayerLayout {
-    bool found = false;
-    bool inline_images = false; ///< Descriptors in the parameter block itself, not pointed to.
-    std::array<u32, 2> image_at{}; ///< Offsets in the parameter block.
-    s32 uv_at = -1;                ///< Offset of the left eye's UV, -1: not found.
-    s32 pose_arg = -1;             ///< Argument (1..3) pointing at the pose, -1: in the block.
-    s32 pose_at = -1;              ///< Offset of the pose there, -1: not found.
+/// The first argument of sceHmdReprojectionStartMultilayer, as Unity (Fate/Grand Order VR,
+/// CUSA09078) fills it in. Recovered from what the title hands over, not from documentation:
+/// two layers of two eye textures, one sampler, then each layer's UV mapping per eye. Unity
+/// draws both eyes side by side into one texture and gives that texture for both eyes.
+struct OrbisHmdReprojectionMultilayerParam {
+    const void* texture[2][2]; ///< [layer][eye] sce::Gnm::Texture, null for an unused layer.
+    const void* sampler;
+    OrbisHmdReprojectionEyeUv uv[2][2]; ///< [layer][eye]
 };
-MultilayerLayout g_multilayer;
+static_assert(offsetof(OrbisHmdReprojectionMultilayerParam, sampler) == 0x20);
+static_assert(offsetof(OrbisHmdReprojectionMultilayerParam, uv) == 0x28);
 
-std::optional<AmdGpu::Image> ImageAt(VAddr block, u32 offset, bool inline_image) {
-    VAddr at = block + offset;
-    if (!inline_image) {
-        if (!Readable(at, 8)) {
-            return std::nullopt;
-        }
-        std::memcpy(&at, reinterpret_cast<const void*>(at), 8);
-    }
-    if (!Readable(at, sizeof(AmdGpu::Image))) {
+/// A guest texture descriptor (sce::Gnm::Texture, 4-byte aligned) that can be an eye image.
+std::optional<AmdGpu::Image> ReadEyeImage(const void* pointer) {
+    const VAddr at = reinterpret_cast<VAddr>(pointer);
+    if ((at & 3) != 0 || !Readable(at & ~7ULL, sizeof(AmdGpu::Image) + 8)) {
         return std::nullopt;
     }
     AmdGpu::Image image;
-    std::memcpy(&image, reinterpret_cast<const void*>(at), sizeof(image));
+    std::memcpy(&image, pointer, sizeof(image));
     if (!PlausibleEyeImage(image)) {
         return std::nullopt;
     }
     return image;
 }
 
-bool FindMultilayerLayout(const std::array<u64, 6>& args) {
-    const VAddr block = args[0];
-    if (!Readable(block, 8)) {
-        return false;
-    }
-    // The block may be shorter than what is scanned: stop where its mapping ends.
-    u32 limit = 8;
-    while (limit < ScanBytes && Readable(block, limit + 8)) {
-        limit += 8;
-    }
-    MultilayerLayout layout;
-    for (const bool inline_images : {false, true}) {
-        const u32 step = 8;
-        const u32 last = inline_images ? limit - sizeof(AmdGpu::Image) : limit - 8;
-        for (u32 first = 0; first <= last && !layout.found; first += step) {
-            const auto left = ImageAt(block, first, inline_images);
-            if (!left) {
-                continue;
-            }
-            for (u32 second = first + step; second <= last && second <= first + 0x100;
-                 second += step) {
-                const auto right = ImageAt(block, second, inline_images);
-                if (right && right->width == left->width && right->height == left->height &&
-                    right->Address() != left->Address()) {
-                    layout = {.found = true,
-                              .inline_images = inline_images,
-                              .image_at = {first, second}};
-                    break;
-                }
-            }
+/// Where the head pose is: which argument points at it, and at what offset. Searched for once.
+struct PoseLocation {
+    bool searched = false;
+    s32 arg = -1;
+    s32 at = -1;
+};
+PoseLocation g_multilayer_pose;
+
+void FindMultilayerPose(const std::array<u64, 6>& args) {
+    g_multilayer_pose.searched = true;
+    for (s32 arg = 1; arg <= 5; ++arg) {
+        if (!Readable(args[arg], DumpBytes)) {
+            continue;
         }
-        if (layout.found) {
-            break;
-        }
-    }
-    if (!layout.found) {
-        return false;
-    }
-    // UV: as in sceHmdReprojectionStart, somewhere after the images (it follows a sampler
-    // pointer there); two eyes' worth, the left one first.
-    const u8* bytes = reinterpret_cast<const u8*>(block);
-    for (u32 at = layout.image_at[1] + 8; at + 2 * sizeof(OrbisHmdReprojectionEyeUv) <= limit;
-         at += 4) {
-        OrbisHmdReprojectionEyeUv uv[2];
-        std::memcpy(uv, bytes + at, sizeof(uv));
-        if (PlausibleUv(uv[0]) && PlausibleUv(uv[1])) {
-            layout.uv_at = static_cast<s32>(at);
-            break;
-        }
-    }
-    // Pose: what the second argument points at first (as in sceHmdReprojectionStart), then the
-    // other arguments, then the block itself.
-    const auto find_pose = [](VAddr where, u32 size) -> s32 {
-        for (u32 at = 0; at + 7 * sizeof(float) <= size; at += 4) {
-            if (!Readable(where + (at & ~7u), 8 * sizeof(float))) {
-                return -1;
-            }
+        for (u32 at = 0; at + 7 * sizeof(float) <= DumpBytes; at += 4) {
             float pose[7];
-            std::memcpy(pose, reinterpret_cast<const void*>(where + at), sizeof(pose));
+            std::memcpy(pose, reinterpret_cast<const u8*>(args[arg]) + at, sizeof(pose));
             if (PlausiblePose(pose)) {
-                return static_cast<s32>(at);
+                g_multilayer_pose = {.searched = true, .arg = arg, .at = static_cast<s32>(at)};
+                LOG_INFO(Lib_Hmd, "Multilayer: head pose found in argument {} at +{:#x}", arg,
+                         at);
+                return;
             }
         }
-        return -1;
-    };
-    for (s32 arg = 1; arg <= 3 && layout.pose_at < 0; ++arg) {
-        if (Readable(args[arg], 64)) {
-            layout.pose_at = find_pose(args[arg], 0x80);
-            layout.pose_arg = layout.pose_at >= 0 ? arg : -1;
-        }
     }
-    if (layout.pose_at < 0) {
-        layout.pose_at = find_pose(block, limit);
-        layout.pose_arg = -1;
-    }
-    LOG_INFO(Lib_Hmd,
-             "Multilayer layout: eye images {} at +{:#x} / +{:#x}, UV {}, pose {} at +{:#x}",
-             layout.inline_images ? "inline" : "by pointer", layout.image_at[0],
-             layout.image_at[1],
-             layout.uv_at >= 0 ? fmt::format("at +{:#x}", layout.uv_at) : "not found",
-             layout.pose_arg >= 0 ? fmt::format("in argument {}", layout.pose_arg) : "in block",
-             layout.pose_at);
-    g_multilayer = layout;
-    return true;
+    LOG_WARNING(Lib_Hmd, "Multilayer: no head pose found in the arguments; frames are shown "
+                         "with the pose of the moment");
 }
 
 } // namespace
@@ -326,57 +270,86 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
     const std::array<u64, 6> args{arg0, arg1, arg2, arg3, arg4, arg5};
     static u32 calls = 0;
     const u32 call = calls++;
-    // The first calls, and one now and then, go to the log in full.
-    if (call < 3 || (call % 1200) == 0 || (!g_multilayer.found && call < 10)) {
+    // The first calls, and one now and then, go to the log in full: the arguments after the
+    // first are not known yet.
+    if (call < 3 || (call % 3600) == 0) {
         LOG_INFO(Lib_Hmd, "Multilayer call {}: args {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}", call,
                  arg0, arg1, arg2, arg3, arg4, arg5);
-        DumpGuest("arg0", arg0, ScanBytes);
-        DumpGuest("arg1", arg1, 0x80);
+        DumpGuest("arg0", arg0, 0x70);
+        DumpGuest("arg2", arg2, DumpBytes);
+        DumpGuest("arg3", arg3, DumpBytes);
     }
+    if (!Readable(arg0, sizeof(OrbisHmdReprojectionMultilayerParam))) {
+        return ORBIS_HMD_ERROR_PARAMETER_NULL;
+    }
+    const auto& param = *reinterpret_cast<const OrbisHmdReprojectionMultilayerParam*>(arg0);
 
-    // Looked for on the first calls, then once a second: a search asks the memory manager about
-    // every number in the block, and it logs each one that is no mapped address.
-    const bool search = call < 10 || (call % 90) == 0;
-    if (!g_multilayer.found && (!search || !FindMultilayerLayout(args))) {
+    // Layer 0 is the scene. (Layer 1, an overlay, is not shown yet.)
+    const auto left = ReadEyeImage(param.texture[0][0]);
+    const auto right = ReadEyeImage(param.texture[0][1]);
+    if (!left || !right) {
         if (call < 10 || (call % 600) == 0) {
-            LOG_WARNING(Lib_Hmd, "Multilayer call {}: no eye images found in its parameters",
-                        call);
+            LOG_WARNING(Lib_Hmd, "Multilayer call {}: no usable eye textures ({} / {})", call,
+                        fmt::ptr(param.texture[0][0]), fmt::ptr(param.texture[0][1]));
         }
         return ORBIS_OK;
     }
-    const auto& layout = g_multilayer;
-    const auto left = ImageAt(arg0, layout.image_at[0], layout.inline_images);
-    const auto right = ImageAt(arg0, layout.image_at[1], layout.inline_images);
-    if (!left || !right) {
-        // The layout no longer fits: look again next time.
-        LOG_WARNING(Lib_Hmd, "Multilayer call {}: the eye images moved, looking again", call);
-        g_multilayer.found = false;
-        return ORBIS_OK;
+    if (call == 0 && param.texture[1][0] != nullptr) {
+        LOG_WARNING(Lib_Hmd, "Multilayer: the title uses an overlay layer, which is not shown");
     }
 
     Libraries::VideoOut::HmdFrame frame{};
     frame.eye_textures = {*left, *right};
-    frame.fov = Core::Vr::Runtime::Instance().GetConfig().fov;
-    if (layout.uv_at >= 0) {
-        OrbisHmdReprojectionEyeUv uv;
-        std::memcpy(&uv, reinterpret_cast<const u8*>(arg0) + layout.uv_at, sizeof(uv));
-        if (PlausibleUv(uv)) {
-            frame.fov = FovFromUv(uv);
-        }
+    const auto& uv_left = param.uv[0][0];
+    if (param.texture[0][0] == param.texture[0][1]) {
+        // Both eyes in one texture, side by side: each eye is its half, and the UV of the left
+        // eye says how far its picture reaches to each side of straight ahead.
+        frame.eye_rects = {{{0.0f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}}};
+        const float sx = std::abs(uv_left.scale_x);
+        const float sy = std::abs(uv_left.scale_y);
+        frame.fov = {
+            .tan_out = uv_left.offset_x / sx,
+            .tan_in = (0.5f - uv_left.offset_x) / sx,
+            .tan_top = uv_left.offset_y / sy,
+            .tan_bottom = (1.0f - uv_left.offset_y) / sy,
+        };
+    } else {
+        frame.fov = FovFromUv(uv_left);
     }
-    if (layout.pose_at >= 0) {
-        const VAddr where = layout.pose_arg >= 0 ? args[layout.pose_arg] : arg0;
+    if (!(std::isfinite(frame.fov.tan_out) && frame.fov.tan_out > 0.1f &&
+          std::isfinite(frame.fov.tan_in) && frame.fov.tan_in > 0.1f &&
+          std::isfinite(frame.fov.tan_top) && frame.fov.tan_top > 0.1f &&
+          std::isfinite(frame.fov.tan_bottom) && frame.fov.tan_bottom > 0.1f)) {
+        frame.fov = Core::Vr::Runtime::Instance().GetConfig().fov;
+    }
+
+    if (!g_multilayer_pose.searched) {
+        FindMultilayerPose(args);
+    }
+    if (g_multilayer_pose.arg >= 0) {
+        const VAddr where = args[g_multilayer_pose.arg] + g_multilayer_pose.at;
         float pose[7];
-        if (Readable(where + (layout.pose_at & ~7), sizeof(pose) + 8)) {
-            std::memcpy(pose, reinterpret_cast<const u8*>(where) + layout.pose_at, sizeof(pose));
+        if (Readable(where & ~3ULL, sizeof(pose))) {
+            std::memcpy(pose, reinterpret_cast<const void*>(where), sizeof(pose));
             if (PlausiblePose(pose)) {
                 frame.render_pose = {.position{pose[0], pose[1], pose[2]},
                                      .orientation{pose[3], pose[4], pose[5], pose[6]}};
             }
         }
     }
-    // As with sceHmdReprojectionStart: the flip argument follows the pose argument.
-    frame.flip_arg = static_cast<s64>(layout.pose_arg == 1 ? arg2 : arg1);
+    // Not known yet which argument, if any, is the flip argument: the fifth counts up with
+    // the frames (0, 1, ...), which is what titles hand sceHmdReprojectionStart there.
+    frame.flip_arg = static_cast<s64>(arg4);
+    if (call < 3) {
+        LOG_INFO(Lib_Hmd,
+                 "Multilayer call {}: eye textures {} ({}x{}), UV left {:.4f}/{:.4f}/{:.4f}/{:.4f} "
+                 "right {:.4f}/{:.4f}/{:.4f}/{:.4f}",
+                 call, param.texture[0][0] == param.texture[0][1] ? "shared, side by side"
+                                                                  : "one per eye",
+                 left->width + 1, left->height + 1, uv_left.scale_x, uv_left.scale_y,
+                 uv_left.offset_x, uv_left.offset_y, param.uv[0][1].scale_x,
+                 param.uv[0][1].scale_y, param.uv[0][1].offset_x, param.uv[0][1].offset_y);
+    }
     return SubmitFrame(frame);
 }
 

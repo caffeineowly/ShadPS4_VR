@@ -45,6 +45,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <tuple>
 #include <sstream>
 #include <system_error>
 #include <vector>
@@ -814,6 +815,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
 }
 
 HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textures,
+                                    std::span<const std::array<float, 4>, 2> eye_rects,
                                     const Core::Vr::Fov& fov, u32 frame_id,
                                     u32& eye_width, u32& eye_height) {
     // The guest hands the eyes over as plain textures; they were rendered as color targets, so
@@ -841,9 +843,15 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     }
     ++logged_frames;
 
-    const auto& left_info = texture_cache.GetImage(image_ids[0]).info;
-    eye_width = left_info.size.width;
-    eye_height = left_info.size.height;
+    // The size of an eye's picture: its part of the texture (both eyes share one, side by side,
+    // in Unity titles).
+    const auto rect_size = [&](u32 eye) {
+        const auto& info = texture_cache.GetImage(image_ids[eye]).info;
+        return std::pair{
+            std::max(1u, static_cast<u32>(info.size.width * eye_rects[eye][2] + 0.5f)),
+            std::max(1u, static_cast<u32>(info.size.height * eye_rects[eye][3] + 0.5f))};
+    };
+    std::tie(eye_width, eye_height) = rect_size(0);
 
     // With a VR host attached the frame goes into one of its buffers instead of the window. A
     // headset of the machine's own gets a frame of its own next to the window's: the eyes'
@@ -933,11 +941,9 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
         return target == nullptr ||
                (target->width == eye_width * 2 && target->height == eye_height);
     };
-    const auto& right_info = texture_cache.GetImage(image_ids[1]).info;
     bool encoded_in = pp_settings.gamma == 1.0f && pp_settings.hdr == 0 && !spectator &&
                       pixel_for_pixel(frame) && pixel_for_pixel(local) &&
-                      right_info.size.width == eye_width && right_info.size.height == eye_height &&
-                      true;
+                      rect_size(1) == std::pair{eye_width, eye_height};
     for (u32 eye = 0; eye < 2 && encoded_in; ++eye) {
         const vk::Format sibling = encoded_sibling(descs[eye].view_info.format);
         // (Upstream images are made with a mutable format: any compatible view is allowed.)
@@ -975,6 +981,7 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
                     .offset{.x = static_cast<s32>(eye * half_width), .y = 0},
                     .extent{.width = half_width, .height = target.height},
                 },
+                .uv_rect = eye_rects[eye],
             };
         }
         return regions;
@@ -1012,6 +1019,7 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
                                 .y = clip.offset.y},
                         .extent{.width = region.clip_width, .height = clip.extent.height},
                     },
+                    .uv_rect = eye_rects[eye],
                 };
             };
             const std::array regions{region_for(0), region_for(1)};
@@ -1020,7 +1028,10 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
         } else if (spectator) {
             const std::array regions{
                 HostPasses::PostProcessingPass::Region{
-                    .input = eye_views[0], .area = content, .clip = clip},
+                    .input = eye_views[0],
+                    .area = content,
+                    .clip = clip,
+                    .uv_rect = eye_rects[0]},
             };
             pp_pass.Render(cmdbuf, regions, *frame, hmd_settings);
         } else {

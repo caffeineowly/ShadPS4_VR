@@ -3,6 +3,8 @@
 
 #include "video_core/renderer_vulkan/host_passes/pp_pass.h"
 
+#include <cstddef>
+
 #include "common/assert.h"
 #include "core/emulator_settings.h"
 #include "video_core/host_shaders/fs_tri_vert.h"
@@ -267,6 +269,9 @@ void PostProcessingPass::Render(vk::CommandBuffer cmdbuf, std::span<const Region
                                   .maxDepth = 1.0f,
                               });
         cmdbuf.setScissor(0, region.clip.value_or(region.area));
+        cmdbuf.pushConstants(*pipeline_layout, vk::ShaderStageFlagBits::eFragment,
+                             offsetof(Settings, uv_rect), sizeof(region.uv_rect),
+                             region.uv_rect.data());
 
         const vk::DescriptorImageInfo image_info{
             .sampler = *sampler,

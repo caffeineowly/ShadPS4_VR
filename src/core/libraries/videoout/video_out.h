@@ -152,6 +152,11 @@ struct HmdFrame {
     Core::Vr::Pose render_pose;
     s64 flip_arg;
     s32 display_index; ///< Display buffer the reprojection would scan this frame out from.
+    /// The part of each eye's texture that is that eye's picture, as u, v, width, height in
+    /// texture coordinates. The whole texture unless both eyes share one (Unity draws them side
+    /// by side into a single texture).
+    std::array<std::array<float, 4>, 2> eye_rects{{{0.0f, 0.0f, 1.0f, 1.0f},
+                                                   {0.0f, 0.0f, 1.0f, 1.0f}}};
 };
 
 // Internal system functions

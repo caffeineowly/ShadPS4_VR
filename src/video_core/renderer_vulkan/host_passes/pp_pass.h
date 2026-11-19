@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <optional>
 #include <span>
 
@@ -33,6 +34,8 @@ public:
         /// on both axes) it is sharpened by `sharpen_centre` instead. 0: no such part.
         float sharpen_centre = 0.0f;
         float centre_radius = 0.0f;
+        /// The part of the input that is drawn: u, v, width, height. Set per Region by Render.
+        std::array<float, 4> uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
     };
 
     void Create(vk::Device device, vk::Format surface_format);
@@ -45,6 +48,8 @@ public:
         vk::ImageView input;
         vk::Rect2D area;
         std::optional<vk::Rect2D> clip;
+        /// The part of `input` drawn into `area`: u, v, width, height.
+        std::array<float, 4> uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
     };
 
     // Frame marker: a row of black and white blocks stamped along the top-left edge of a frame.
