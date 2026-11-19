@@ -27,16 +27,23 @@ void SetCurrentThreadName(const char* name);
 void SetThreadName(void* thread, const char* name);
 
 bool AccurateSleep(std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
-                   bool interruptible);
+                   bool interruptible, bool high_resolution = false);
 
 class AccurateTimer {
     std::chrono::nanoseconds target_interval{};
     std::chrono::nanoseconds total_wait{};
+    const bool high_resolution;
 
     std::chrono::high_resolution_clock::time_point start_time;
 
 public:
-    explicit AccurateTimer(std::chrono::nanoseconds target_interval);
+    /// high_resolution: on Windows, sleeps on a high-resolution waitable timer (sub-millisecond),
+    /// for the VR present thread's pacing. (From bigmak94/AstroQuest.)
+    explicit AccurateTimer(std::chrono::nanoseconds target_interval, bool high_resolution = false);
+
+    void SetInterval(std::chrono::nanoseconds interval) {
+        target_interval = interval;
+    }
 
     void Start();
 

@@ -421,3 +421,6 @@ cmake-build-*
 
 # Nix Result symlink
 result
+
+# Shadps4_vr build output
+/dist/

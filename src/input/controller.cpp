@@ -11,10 +11,12 @@
 #include <SDL3/SDL.h>
 
 #include "common/logging/log.h"
+#include "common/singleton.h"
 #include "core/emulator_settings.h"
 #include "core/libraries/kernel/time.h"
 #include "core/libraries/system/userservice.h"
 #include "core/user_settings.h"
+#include "core/vr/vr_runtime.h"
 #include "input/controller.h"
 
 namespace Input {
@@ -95,12 +97,18 @@ int GameController::ReadStates(State* states, int states_num) {
 }
 
 void GameController::Button(OrbisPadButtonDataOffset button, bool is_pressed) {
+    if (HeadsetPlays()) {
+        return;
+    }
     std::lock_guard lock{m_state_mutex};
     m_state.OnButton(button, is_pressed);
     PushStateLocked();
 }
 
 void GameController::Axis(Input::Axis axis, int value, bool smooth) {
+    if (HeadsetPlays()) {
+        return;
+    }
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
     m_state.OnAxis(axis, value, timestamp, smooth);
@@ -130,6 +138,70 @@ void GameController::ResetOrientation() {
 }
 
 void GameController::SetTouchpadState(int touch_index, bool touch_down, float x, float y) {
+    if (HeadsetPlays()) {
+        return;
+    }
+    SetTouchpadStateUnchecked(touch_index, touch_down, x, y);
+}
+
+void GameController::SetHeadsetPlays(bool plays) {
+    if (m_headset_plays.exchange(plays, std::memory_order_relaxed) == plays) {
+        return;
+    }
+    // Whoever played until now leaves nothing held.
+    {
+        std::lock_guard lock{m_state_mutex};
+        const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+        m_state.buttonsState = {};
+        static constexpr std::array<int, 6> Rest{128, 128, 128, 128, 0, 0};
+        for (int i = 0; i < std::to_underlying(Axis::AxisMax); ++i) {
+            m_state.OnAxis(static_cast<Input::Axis>(i), Rest[i], timestamp, false);
+        }
+        PushStateLocked(timestamp);
+    }
+    SetTouchpadStateUnchecked(0, false, 0.5f, 0.5f);
+}
+
+void GameController::ApplyHeadsetState(OrbisPadButtonDataOffset buttons,
+                                       const std::array<int, 6>& axes, bool touch_down,
+                                       float touch_x, float touch_y) {
+    {
+        std::lock_guard lock{m_state_mutex};
+        // (The gamepad may have taken the controller back a moment ago, from another thread.)
+        if (!HeadsetPlays()) {
+            return;
+        }
+        ApplyStateLocked(buttons, axes);
+    }
+    SetTouchpadStateUnchecked(0, touch_down, touch_x, touch_y);
+}
+
+void GameController::ApplyRemoteState(OrbisPadButtonDataOffset buttons,
+                                      const std::array<int, 6>& axes, bool touch_down,
+                                      float touch_x, float touch_y) {
+    {
+        std::lock_guard lock{m_state_mutex};
+        ApplyStateLocked(buttons, axes);
+    }
+    SetTouchpadStateUnchecked(0, touch_down, touch_x, touch_y);
+}
+
+void GameController::ApplyStateLocked(OrbisPadButtonDataOffset buttons,
+                                      const std::array<int, 6>& axes) {
+    const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+    m_state.connected = true;
+    if (m_state.connected_count == 0) {
+        m_state.connected_count = 1;
+    }
+    m_state.buttonsState = buttons;
+    for (int i = 0; i < std::to_underlying(Axis::AxisMax); ++i) {
+        m_state.OnAxis(static_cast<Input::Axis>(i), axes[i], timestamp, false);
+    }
+    PushStateLocked(timestamp);
+}
+
+void GameController::SetTouchpadStateUnchecked(int touch_index, bool touch_down, float x,
+                                               float y) {
     if (touch_index < 0 || touch_index >= 2) {
         return;
     }
@@ -260,7 +332,12 @@ void GameControllers::ResetLightbarColors() {
 }
 
 bool GameController::SetVibration(u8 smallMotor, u8 largeMotor) {
-    if (m_sdl_gamepad != nullptr) {
+    if (this == (*Common::Singleton<GameControllers>::Instance())[0]) {
+        // The headset's controllers rumble too, where they play or hold the gamepad.
+        Core::Vr::Runtime::Instance().SetPadVibration(smallMotor, largeMotor);
+    }
+    // (A gamepad that lies on the desk while the headset's controllers play stays still.)
+    if (m_sdl_gamepad != nullptr && !HeadsetPlays()) {
         return SDL_RumbleGamepad(m_sdl_gamepad, (smallMotor / 255.0f) * 0xFFFF,
                                  (largeMotor / 255.0f) * 0xFFFF, -1);
     }

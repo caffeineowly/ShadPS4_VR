@@ -5,6 +5,7 @@
 #include "common/logging/log.h"
 #include "core/emulator_settings.h"
 #include "core/libraries/camera/camera.h"
+#include "core/libraries/camera/camera_virtual.h"
 #include "core/libraries/camera/camera_helpers.h"
 #include "core/libraries/error_codes.h"
 #include "core/libraries/kernel/memory.h"
@@ -89,6 +90,9 @@ s32 PS4_SYSV_ABI sceCameraGetFrameData(s32 handle, OrbisCameraFrameData* frame_d
     frame_data->status[1] = -1;
     if (handle < 1 || frame_data->sizeThis > 584) {
         return ORBIS_CAMERA_ERROR_PARAM;
+    }
+    if (g_library_opened && Virtual::IsActive()) {
+        return Virtual::GetFrameData(frame_data);
     }
     if (!g_library_opened || !sdl_camera) {
         return ORBIS_CAMERA_ERROR_NOT_OPEN;
@@ -196,7 +200,7 @@ s32 PS4_SYSV_ABI sceCameraIsAttached(s32 index) {
         return ORBIS_CAMERA_ERROR_PARAM;
     }
     // 0 = disconnected, 1 = connected
-    return EmulatorSettings.GetCameraId() == -1 ? 0 : 1;
+    return Virtual::IsCameraConnected() ? 1 : 0;
 }
 
 s32 PS4_SYSV_ABI sceCameraIsConfigChangeDone() {
@@ -294,6 +298,11 @@ s32 PS4_SYSV_ABI sceCameraStart(s32 handle, OrbisCameraStartParameter* param) {
         return ORBIS_CAMERA_ERROR_FORMAT_UNKNOWN;
     }
 
+    if (Virtual::IsActive()) {
+        Virtual::Start();
+        return ORBIS_OK;
+    }
+
     if (param->formatLevel[0] > 1 || param->formatLevel[1] > 1) {
         LOG_ERROR(Lib_Camera, "Downscaled image retrieval isn't supported yet!");
     }
@@ -372,6 +381,7 @@ s32 PS4_SYSV_ABI sceCameraStop(s32 handle) {
     if (!g_library_opened) {
         return ORBIS_CAMERA_ERROR_NOT_OPEN;
     }
+    Virtual::Stop();
 
     return ORBIS_OK;
 }

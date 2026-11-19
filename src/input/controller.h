@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -106,6 +107,24 @@ public:
     bool SetVibration(u8 smallMotor, u8 largeMotor);
     void SetTouchpadState(int touchIndex, bool touchDown, float x, float y);
 
+    /// In a headset, the headset's own controllers can play this controller in place of the
+    /// PC's gamepad (see Input::PadSource). While they do, what the gamepad's buttons, sticks
+    /// and touchpad say is left aside. The controller is at rest after either change.
+    /// (From bigmak94/AstroQuest.)
+    void SetHeadsetPlays(bool plays);
+    bool HeadsetPlays() const {
+        return m_headset_plays.load(std::memory_order_relaxed);
+    }
+    /// The whole state of the headset's controllers, as a PS4 controller: nothing unless they
+    /// play. axes are LX, LY, RX, RY, L2, R2 (0..255).
+    void ApplyHeadsetState(Libraries::Pad::OrbisPadButtonDataOffset buttons,
+                           const std::array<int, 6>& axes, bool touch_down, float touch_x,
+                           float touch_y);
+    /// The same for a state from elsewhere (scripted test input), whoever plays.
+    void ApplyRemoteState(Libraries::Pad::OrbisPadButtonDataOffset buttons,
+                          const std::array<int, 6>& axes, bool touch_down, float touch_x,
+                          float touch_y);
+
     float gyro_buf[3] = {0.0f, 0.0f, 0.0f}, accel_buf[3] = {0.0f, 9.81f, 0.0f};
     s32 user_id = Libraries::UserService::ORBIS_USER_SERVICE_USER_ID_INVALID;
     SDL_Gamepad* m_sdl_gamepad = nullptr;
@@ -114,6 +133,11 @@ private:
     // m_state_mutex must be held by the caller.
     void PushStateLocked(u64 timestamp = 0);
     void UpdateOrientationLocked(u64 timestamp);
+    void SetTouchpadStateUnchecked(int touchIndex, bool touchDown, float x, float y);
+    void ApplyStateLocked(Libraries::Pad::OrbisPadButtonDataOffset buttons,
+                          const std::array<int, 6>& axes);
+
+    std::atomic<bool> m_headset_plays{false};
 
     u8 m_next_touch_id{1};
     u64 m_touch_down_timestamp{};

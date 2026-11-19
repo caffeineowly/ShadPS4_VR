@@ -5,6 +5,7 @@
 #include "common/logging/log.h"
 #include "core/emulator_settings.h"
 #include "core/libraries/camera/camera.h"
+#include "core/libraries/camera/camera_virtual.h"
 
 namespace Libraries::Camera {
 
@@ -360,6 +361,9 @@ s32 PS4_SYSV_ABI sceCameraSetAutoWhiteBalance(s32 handle, OrbisCameraChannel cha
     if (!g_library_opened) {
         return ORBIS_CAMERA_ERROR_NOT_OPEN;
     }
+    if (Virtual::IsActive()) {
+        return ORBIS_OK;
+    }
 
     return ORBIS_CAMERA_ERROR_NOT_CONNECTED;
 }
@@ -379,7 +383,7 @@ s32 PS4_SYSV_ABI sceCameraSetConfig(s32 handle, OrbisCameraConfig* config) {
         LOG_ERROR(Lib_Camera, "ORBIS_CAMERA_ERROR_NOT_OPEN");
         return ORBIS_CAMERA_ERROR_NOT_OPEN;
     }
-    if (EmulatorSettings.GetCameraId() == -1) {
+    if (!Virtual::IsCameraConnected()) {
         LOG_ERROR(Lib_Camera, "ORBIS_CAMERA_ERROR_NOT_CONNECTED");
         return ORBIS_CAMERA_ERROR_NOT_CONNECTED;
     }
@@ -478,6 +482,10 @@ s32 PS4_SYSV_ABI sceCameraSetDefectivePixelCancellationInternal(s32 handle,
 s32 PS4_SYSV_ABI sceCameraSetExposureGain(s32 handle, OrbisCameraChannel channel,
                                           OrbisCameraExposureGain* exposure_gain, void* option) {
     LOG_DEBUG(Lib_Camera, "called");
+    if (g_library_opened && Virtual::IsActive()) {
+        Virtual::SetExposureGain(channel, exposure_gain);
+        return ORBIS_OK;
+    }
     if (handle < 1 || channel > OrbisCameraChannel::ORBIS_CAMERA_CHANNEL_BOTH ||
         channel < OrbisCameraChannel::ORBIS_CAMERA_CHANNEL_0 || exposure_gain != nullptr ||
         option != nullptr) {

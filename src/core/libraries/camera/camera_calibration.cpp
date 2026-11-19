@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstring>
+
 #include "common/logging/log.h"
 #include "core/emulator_settings.h"
 #include "core/libraries/camera/camera.h"
+#include "core/libraries/camera/camera_virtual.h"
 
 namespace Libraries::Camera {
 
@@ -57,6 +60,13 @@ s32 PS4_SYSV_ABI sceCameraGetCalibrationData(const OrbisCameraGetCalibrationData
             OrbisCameraCalibrationDataFunctionType::
                 ORBIS_CAMERA_CALIBRATION_DATA_FUNCTION_TYPE_IMAGE_INVERSE_RECTIFICATION) {
         return ORBIS_CAMERA_ERROR_PARAM;
+    }
+    if (Virtual::IsActive()) {
+        // An empty rectification mesh: nothing is ever read back out of the blank frames.
+        std::memset(calibration_data, 0, sizeof(OrbisCameraCalibrationData));
+        calibration_data->format_type = param->format_type;
+        calibration_data->function_type = param->function_type;
+        return ORBIS_OK;
     }
     if (EmulatorSettings.GetCameraId() == -1) {
         return ORBIS_CAMERA_ERROR_NOT_CONNECTED;

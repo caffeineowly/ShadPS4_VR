@@ -1,0 +1,6 @@
+{
+  "headset": "auto",
+  "refresh_rate": 120,
+  "ipd_mm": 63.5,
+  "pad_anchor": "head"
+}

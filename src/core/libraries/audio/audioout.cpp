@@ -13,6 +13,7 @@
 #include "common/logging/log.h"
 #include "common/thread.h"
 #include "core/emulator_settings.h"
+#include "core/vr/vr_runtime.h"
 #include "core/libraries/audio/audioout.h"
 #include "core/libraries/audio/audioout_backend.h"
 #include "core/libraries/audio/audioout_error.h"
@@ -171,6 +172,15 @@ static void AudioOutputThread(std::shared_ptr<PortOut> port, const std::stop_tok
     Common::AccurateTimer timer(
         std::chrono::nanoseconds(1000000000ULL * port->buffer_frames / port->sample_rate));
 
+    // With a VR headset as the display, the AUX port carries what the television plays for the
+    // people watching; the wearer hears the main port. Playing both would double every sound.
+    // (From bigmak94/AstroQuest.)
+    const bool muted =
+        port->type == OrbisAudioOutPort::Aux && Core::Vr::Runtime::Instance().IsHeadsetConnected();
+    if (muted) {
+        LOG_INFO(Lib_AudioOut, "the AUX port is the mix for the television and is not played");
+    }
+
     while (true) {
         timer.Start();
 
@@ -181,7 +191,9 @@ static void AudioOutputThread(std::shared_ptr<PortOut> port, const std::stop_tok
             }
 
             if (port->output_ready) {
-                port->impl->Output(port->output_buffer);
+                if (!muted) {
+                    port->impl->Output(port->output_buffer);
+                }
                 port->output_ready = false;
                 port->last_output_time =
                     Kernel::sceKernelGetProcessTime(); // moved from sceAudioOutOutput TOOD recheck

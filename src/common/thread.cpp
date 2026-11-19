@@ -23,6 +23,7 @@
 #elif defined(_WIN32)
 #include <windows.h>
 #include "common/string_util.h"
+#include "common/windows_sleep_timer.h"
 #else
 #if defined(__Bitrig__) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 #include <pthread_np.h>
@@ -143,7 +144,17 @@ thread_local ThreadTimer thread_timer;
 } // namespace
 
 bool AccurateSleep(const std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
-                   const bool interruptible) {
+                   const bool interruptible, const bool high_resolution) {
+    if (high_resolution && duration.count() > 0) {
+        const auto begin = std::chrono::high_resolution_clock::now();
+        thread_local WindowsSleepTimer precise_timer;
+        const DWORD result = precise_timer.Wait(duration, interruptible);
+        if (remaining) {
+            const auto slept = std::chrono::high_resolution_clock::now() - begin;
+            *remaining = duration > slept ? duration - slept : std::chrono::nanoseconds(0);
+        }
+        return result == WAIT_OBJECT_0;
+    }
     // Zero or negative sleeps is a yield, no timer.
     if (duration.count() <= 0) {
         const auto ret = SleepEx(0, interruptible);
@@ -198,7 +209,7 @@ void SetCurrentThreadPriority(ThreadPriority new_priority) {
 }
 
 bool AccurateSleep(const std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
-                   const bool interruptible) {
+                   const bool interruptible, [[maybe_unused]] const bool high_resolution) {
     timespec request = {
         .tv_sec = duration.count() / 1'000'000'000,
         .tv_nsec = duration.count() % 1'000'000'000,
@@ -280,13 +291,13 @@ void SetThreadName(void* thread, const char* name) {
 
 #endif
 
-AccurateTimer::AccurateTimer(std::chrono::nanoseconds target_interval)
-    : target_interval(target_interval) {}
+AccurateTimer::AccurateTimer(std::chrono::nanoseconds target_interval, bool high_resolution)
+    : target_interval(target_interval), high_resolution(high_resolution) {}
 
 void AccurateTimer::Start() {
     const auto begin_sleep = std::chrono::high_resolution_clock::now();
     if (total_wait.count() > 0) {
-        AccurateSleep(total_wait, nullptr, false);
+        AccurateSleep(total_wait, nullptr, false, high_resolution);
     }
     start_time = std::chrono::high_resolution_clock::now();
     total_wait -= std::chrono::duration_cast<std::chrono::nanoseconds>(start_time - begin_sleep);

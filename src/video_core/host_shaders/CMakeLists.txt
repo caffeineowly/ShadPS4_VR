@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright 2023 Citra Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-if (TARGET glslang-standalone)
+# When cross-compiling, shaders have to be compiled by a glslang made for the build machine: pass
+# it with -DHOST_GLSLANG_COMPILER=<path> (cross-win64/build.sh does).
+set(HOST_GLSLANG_COMPILER "" CACHE FILEPATH "Host-built glslang-standalone, for cross-compiling")
+if (HOST_GLSLANG_COMPILER)
+    set(GLSLANG_COMPILER ${HOST_GLSLANG_COMPILER})
+elseif (TARGET glslang-standalone)
     set(GLSLANG_COMPILER glslang-standalone)
 elseif (TARGET glslang::glslang-standalone)
     set(GLSLANG_COMPILER glslang::glslang-standalone)

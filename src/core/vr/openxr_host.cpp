@@ -31,6 +31,7 @@
 #include "core/vr/late_frame_wait.h"
 #include "core/vr/openxr_host.h"
 #include "input/controller.h"
+#include "input/scripted_input.h"
 #include "input/pad_source.h"
 #include "input/pad_gestures.h"
 #include "input/stick_finger.h"

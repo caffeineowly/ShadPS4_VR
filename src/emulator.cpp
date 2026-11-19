@@ -45,6 +45,10 @@
 #include "core/libraries/usbd/usbstorage.h"
 #include "core/linker.h"
 #include "core/memory.h"
+#ifdef ENABLE_OPENXR_HOST
+#include "core/vr/openxr_host.h"
+#endif
+#include "core/vr/vr_runtime.h"
 #include "core/user_settings.h"
 #include "emulator.h"
 #include "video_core/cache_storage.h"
@@ -97,6 +101,10 @@ void Emulator::Shutdown() {
     if (exit_done) {
         return;
     }
+#ifdef ENABLE_OPENXR_HOST
+    // Ends the headset session so the headset's system knows the game is over.
+    Core::Vr::OpenXrHost::Instance().Shutdown();
+#endif
     Common::Log::Flush();
     Libraries::SaveData::Backup::StopThread();
     Storage::DataBase::Instance().Close();
@@ -574,6 +582,12 @@ void Emulator::Run(std::filesystem::path file, std::vector<std::string> args,
 
     // Initialize components
     memory = Core::Memory::Instance();
+    // The console's address space is set aside (just above) before anything of a headset is
+    // looked for: what an OpenXR runtime brings into the process may otherwise lie where a
+    // title maps its memory (SteamVR's did). The OpenXR runtime is connected here, before the
+    // window and its Vulkan instance, which have to suit it. (From bigmak94/AstroQuest.)
+    Core::Vr::Runtime::Instance().Configure(psf_attributes.support_ps_vr.Value() != 0,
+                                            psf_attributes.require_ps_vr.Value() != 0);
     controllers = Common::Singleton<Input::GameControllers>::Instance();
     linker = Common::Singleton<Core::Linker>::Instance();
 

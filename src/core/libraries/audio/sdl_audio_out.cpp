@@ -14,6 +14,9 @@
 #include "core/libraries/audio/audioout.h"
 #include "core/libraries/audio/audioout_backend.h"
 #include "core/libraries/kernel/threads.h"
+#ifdef ENABLE_OPENXR_HOST
+#include "core/vr/openxr_host.h"
+#endif
 
 // SIMD support detection
 #if defined(__x86_64__) || defined(_M_X64)
@@ -388,15 +391,27 @@ private:
     }
 
     std::string GetDeviceName(OrbisAudioOutPort type) const {
+        std::string name;
         switch (type) {
-        case OrbisAudioOutPort::Main:
-        case OrbisAudioOutPort::Bgm:
-            return EmulatorSettings.GetSDLMainOutputDevice();
         case OrbisAudioOutPort::PadSpk:
-            return EmulatorSettings.GetSDLPadSpkOutputDevice();
+            name = EmulatorSettings.GetSDLPadSpkOutputDevice();
+            break;
         default:
-            return EmulatorSettings.GetSDLMainOutputDevice();
+            name = EmulatorSettings.GetSDLMainOutputDevice();
+            break;
         }
+#ifdef ENABLE_OPENXR_HOST
+        // Left to the system, the sound goes where the headset of this machine plays it, if
+        // its runtime names a device for that (one that streams to a headset has its own).
+        // (From bigmak94/AstroQuest.) The controller speaker stays on the controller.
+        if (type != OrbisAudioOutPort::PadSpk && (name.empty() || name == "Default Device")) {
+            if (const std::string headset = Core::Vr::OpenXrHost::Instance().AudioOutputName();
+                !headset.empty()) {
+                return headset;
+            }
+        }
+#endif
+        return name;
     }
 
     static constexpr float DOWNMIX_FRONT = 1.0f;

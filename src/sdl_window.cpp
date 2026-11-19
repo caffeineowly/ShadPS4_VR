@@ -28,6 +28,9 @@
 #include "input/input_handler.h"
 #include "input/input_mouse.h"
 #include "sdl_window.h"
+#include "core/vr/vr_runtime.h"
+#include "input/pad_source.h"
+#include "input/scripted_input.h"
 #include "video_core/renderdoc.h"
 
 #ifdef __APPLE__
@@ -407,6 +410,114 @@ void WindowSDL::OnGamepadEvent(const SDL_Event* event) {
                       event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
     Input::InputEvent input_event = Input::InputBinding::GetInputEventFromSDLEvent(*event);
 
+    // (VR gamepad handling from bigmak94/AstroQuest.)
+    // In a headset, the first player's gamepad and the headset's own controllers take turns:
+    // whichever was used last plays (see Input::PadSource). A button pressed, a stick or a
+    // trigger pushed, the touchpad touched is the gamepad being used.
+    {
+        SDL_JoystickID which = 0;
+        bool used = false;
+        switch (event->type) {
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            which = event->gbutton.which;
+            used = true;
+            break;
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+            which = event->gaxis.which;
+            used = std::abs(static_cast<int>(event->gaxis.value)) > 16000;
+            break;
+        case SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN:
+            which = event->gtouchpad.which;
+            used = true;
+            break;
+        default:
+            break;
+        }
+        auto* const first = controllers[0];
+        if (used && first->m_sdl_gamepad != nullptr &&
+            SDL_GetGamepadFromID(which) == first->m_sdl_gamepad) {
+            const double now = std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now().time_since_epoch())
+                                   .count();
+            if (Input::FirstPadSource().GamepadUsed(now)) {
+                first->SetHeadsetPlays(false);
+                LOG_INFO(Input, "Controller 1 was used: it plays again, and the headset's "
+                                "controllers are left aside until they are used");
+            }
+        }
+    }
+
+    // The PS button is nothing a title ever sees. In a headset, pressed and let go, it resets
+    // the view. Held, it has the D-pad move the place a controller that nothing locates is
+    // held to be at (up, down, left, right; L1 nearer, R1 farther; two centimetres a press),
+    // triangle switch between that place and the standard one, and square blow into the
+    // microphone for as long as it is held. None of that reaches the title.
+    if (event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ||
+        event->type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+        static bool held = false;
+        static bool used = false;
+        static u32 kept_back = 0;
+        const bool down = event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        const u8 button = event->gbutton.button;
+        auto& runtime = Core::Vr::Runtime::Instance();
+        if (button == SDL_GAMEPAD_BUTTON_GUIDE) {
+            if (down) {
+                held = true;
+                used = false;
+            } else {
+                if (held && !used) {
+                    runtime.NotePadButton(Core::Vr::Runtime::PadButton::Home, true);
+                    runtime.NotePadButton(Core::Vr::Runtime::PadButton::Home, false);
+                }
+                held = false;
+            }
+        } else if (button < 32 && !down && (kept_back & (1u << button)) != 0) {
+            // Let go of after it did something else than the title would have seen.
+            kept_back &= ~(1u << button);
+            if (button == SDL_GAMEPAD_BUTTON_WEST) {
+                Input::SetBlowing(false);
+            }
+            return;
+        } else if (held && down && button < 32) {
+            static constexpr float Step = 0.02f;
+            bool taken = true;
+            switch (button) {
+            case SDL_GAMEPAD_BUTTON_DPAD_UP:
+                runtime.MoveOwnPadPlace({0.0f, Step, 0.0f});
+                break;
+            case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+                runtime.MoveOwnPadPlace({0.0f, -Step, 0.0f});
+                break;
+            case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+                runtime.MoveOwnPadPlace({-Step, 0.0f, 0.0f});
+                break;
+            case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+                runtime.MoveOwnPadPlace({Step, 0.0f, 0.0f});
+                break;
+            case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:
+                runtime.MoveOwnPadPlace({0.0f, 0.0f, Step});
+                break;
+            case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:
+                runtime.MoveOwnPadPlace({0.0f, 0.0f, -Step});
+                break;
+            case SDL_GAMEPAD_BUTTON_NORTH:
+                runtime.SwitchPadPlace();
+                break;
+            case SDL_GAMEPAD_BUTTON_WEST:
+                Input::SetBlowing(true);
+                break;
+            default:
+                taken = false;
+                break;
+            }
+            if (taken) {
+                used = true;
+                kept_back |= 1u << button;
+                return;
+            }
+        }
+    }
+
     // the touchpad button shouldn't be rebound to anything else,
     // as it would break the entire touchpad handling
     // You can still bind other things to it though
@@ -426,11 +537,21 @@ void WindowSDL::OnGamepadEvent(const SDL_Event* event) {
             if (gamepad < 5) {
                 controllers[gamepad]->UpdateGyro(event->gsensor.data);
             }
+            if (gamepad == 0) {
+                // The tracked controller of a VR title gets its attitude from the same data.
+                const float* gyro = event->gsensor.data;
+                Core::Vr::Runtime::Instance().UpdatePadGyro({gyro[0], gyro[1], gyro[2]});
+            }
             break;
         case SDL_SENSOR_ACCEL:
             gamepad = controllers.GetGamepadIndexFromJoystickId(event->gsensor.which);
             if (gamepad < 5) {
                 controllers[gamepad]->UpdateAcceleration(event->gsensor.data);
+            }
+            if (gamepad == 0) {
+                // The tracked controller of a VR title gets its attitude from the same data.
+                const float* accel = event->gsensor.data;
+                Core::Vr::Runtime::Instance().UpdatePadAcceleration({accel[0], accel[1], accel[2]});
             }
             break;
         default:

@@ -524,6 +524,7 @@ set(SYSTEM_LIBS src/core/libraries/system/commondialog.cpp
 set(VIDEOOUT_LIB src/core/libraries/videoout/buffer.h
                  src/core/libraries/videoout/driver.cpp
                  src/core/libraries/videoout/driver.h
+                 src/core/libraries/videoout/flip_label_tracker.h
                  src/core/libraries/videoout/video_out.cpp
                  src/core/libraries/videoout/video_out.h
                  src/core/libraries/videoout/videoout_error.h
@@ -741,6 +742,8 @@ set(VR_LIBS  src/core/libraries/hmd/hmd.cpp
              src/core/libraries/hmd/vrservicedialog.h
              src/core/libraries/vr_tracker/vr_tracker.cpp
              src/core/libraries/vr_tracker/vr_tracker.h
+             src/core/vr/guest_frames.cpp
+             src/core/vr/guest_frames.h
              src/core/vr/headset_fov_cache.h
              src/core/vr/late_frame_wait.h
              src/core/vr/mirror_limiter.h
@@ -779,6 +782,8 @@ set(CAMERA_LIBS  src/core/libraries/camera/camera.cpp
                  src/core/libraries/camera/camera_config.cpp
                  src/core/libraries/camera/camera_config_types.h
                  src/core/libraries/camera/camera_device.cpp
+                 src/core/libraries/camera/camera_virtual.cpp
+                 src/core/libraries/camera/camera_virtual.h
                  src/core/libraries/camera/camera_error.h
 )
 
@@ -1249,6 +1254,7 @@ set(VIDEO_CORE src/video_core/amdgpu/cb_db_extent.h
                src/video_core/renderer_vulkan/vk_swapchain.h
                src/video_core/renderer_vulkan/vk_vr_exporter.cpp
                src/video_core/renderer_vulkan/vk_vr_exporter.h
+               src/video_core/renderer_vulkan/vk_frame_stats.h
                src/video_core/renderer_vulkan/host_passes/fsr_pass.cpp
                src/video_core/renderer_vulkan/host_passes/fsr_pass.h
                src/video_core/renderer_vulkan/host_passes/pp_pass.cpp
@@ -1338,14 +1344,21 @@ set(EMULATOR src/emulator.cpp
              src/sdl_window.cpp
 )
 
-# shadNet protobuf generation
+# shadNet protobuf generation. When cross-compiling, protoc has to be one made for the build
+# machine: pass it with -DHOST_PROTOC=<path> (cross-win64/build.sh does).
+set(HOST_PROTOC "" CACHE FILEPATH "Host-built protoc, for cross-compiling")
+if (HOST_PROTOC)
+    set(SHADNET_PROTOC ${HOST_PROTOC})
+else()
+    set(SHADNET_PROTOC protobuf::protoc)
+endif()
 set(SHADNET_PROTO_OUT "${CMAKE_CURRENT_BINARY_DIR}/shadnet_proto_gen")
 file(MAKE_DIRECTORY "${SHADNET_PROTO_OUT}")
 add_custom_command(
     OUTPUT
         "${SHADNET_PROTO_OUT}/shadnet.pb.cc"
         "${SHADNET_PROTO_OUT}/shadnet.pb.h"
-    COMMAND protobuf::protoc
+    COMMAND ${SHADNET_PROTOC}
         "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}/src/shadnet"
         "--cpp_out=${SHADNET_PROTO_OUT}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/shadnet/shadnet.proto"
