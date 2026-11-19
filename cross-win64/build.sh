@@ -11,7 +11,7 @@
 #   - xwin, then the MSVC CRT + Windows SDK through it (~630 MB; you accept Microsoft's license
 #     terms by running this: https://go.microsoft.com/fwlink/?LinkId=2086102)
 #   - compiler-rt builtins sources matching your clang, built to clang_rt.builtins-x86_64.lib
-# Output: dist/Shadps4_vr-win64-<git describe>.zip in the repository.
+# Output: dist/Shadps4_vr-win64.zip in the repository.
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

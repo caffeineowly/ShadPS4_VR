@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Copyright 2026 Shadps4_vr contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Packs a Windows build of Shadps4_vr into dist/Shadps4_vr-win64-<version>.zip.
+# Packs a Windows build of Shadps4_vr into dist/Shadps4_vr-win64.zip (always the same name, so
+# test builds can be copied with one fixed scp command; the version is in VERSION.txt inside).
 #   package.sh <build-dir>
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build=$1
 version=$(git -C "$repo" describe --always --dirty 2>/dev/null || echo unknown)
-name=Shadps4_vr-win64-$version
+name=Shadps4_vr-win64
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 out=$stage/$name
 mkdir -p "$out/licenses"
 
 cp "$build/shadps4.exe" "$out/"
+printf "%s\nbuilt %s\n" "$version" "$(date -u +%Y-%m-%dT%H:%MZ)" > "$out/VERSION.txt"
 # Any DLLs the build produced next to the executable (normally none: everything is static).
 find "$build" -maxdepth 1 -name '*.dll' -exec cp {} "$out/" \;
 

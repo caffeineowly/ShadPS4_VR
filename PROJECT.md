@@ -105,7 +105,7 @@ Tools: `clang` (with `clang-cl`), `lld`, `llvm` (llvm-lib, llvm-rc, llvm-mt), `c
 
 ```sh
 cross-win64/build.sh            # add --clean for a fresh build, --jobs N to limit parallelism
-# -> dist/Shadps4_vr-win64-<git describe>.zip
+# -> dist/Shadps4_vr-win64.zip
 ```
 
 On first run it downloads into `WORK` (default `/tmp/shadps4_vr-win64`, RAM-backed on Fedora so
@@ -119,5 +119,5 @@ Cross-compile fixes this needed (all in this repo):
 `HOST_PROTOC` CMake options so build-time tools run on the build machine;
 `cross-win64/fix-sdk-case.sh` for Windows header/library names on a case-sensitive file system.
 
-Transfer: `scp dist/Shadps4_vr-win64-*.zip user@windows-pc:` and unzip; see `README-VR.txt`
+Transfer: `scp dist/Shadps4_vr-win64.zip user@windows-pc:` and unzip; see `README-VR.txt`
 inside for running it.
