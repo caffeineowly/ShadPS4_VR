@@ -143,6 +143,29 @@ static LONG WINAPI SignalHandler(EXCEPTION_POINTERS* pExp) noexcept {
         use_static_windows_guest_red_zone_protection ? static_protection_exception : true;
     if (report_unhandled) {
         LOG_CRITICAL(Debug, "Unhandled Exception code {:#x} at {}", code, address);
+        if (code == EXCEPTION_ACCESS_VIOLATION && pExp->ExceptionRecord->NumberParameters >= 2) {
+            const auto kind = pExp->ExceptionRecord->ExceptionInformation[0];
+            LOG_CRITICAL(Debug, "  {} of address {:#x}",
+                         kind == 0 ? "read" : kind == 1 ? "write" : "execution",
+                         pExp->ExceptionRecord->ExceptionInformation[1]);
+        }
+        if (const CONTEXT* c = pExp->ContextRecord; c != nullptr) {
+            LOG_CRITICAL(Debug,
+                         "  rax {:#x} rbx {:#x} rcx {:#x} rdx {:#x} rsi {:#x} rdi {:#x} rbp {:#x} "
+                         "rsp {:#x}",
+                         c->Rax, c->Rbx, c->Rcx, c->Rdx, c->Rsi, c->Rdi, c->Rbp, c->Rsp);
+            LOG_CRITICAL(Debug,
+                         "  r8 {:#x} r9 {:#x} r10 {:#x} r11 {:#x} r12 {:#x} r13 {:#x} r14 {:#x} "
+                         "r15 {:#x}",
+                         c->R8, c->R9, c->R10, c->R11, c->R12, c->R13, c->R14, c->R15);
+            // The instruction bytes, to tell what it did without the game's binary.
+            const auto* bytes = reinterpret_cast<const u8*>(address);
+            std::string text;
+            for (int i = -8; i < 16; ++i) {
+                text += fmt::format("{}{:02x}", i == 0 ? " [" : " ", bytes[i]);
+            }
+            LOG_CRITICAL(Debug, "  code around it:{} ]", text);
+        }
         Common::Singleton<Core::Emulator>::Instance()->Shutdown();
     }
 

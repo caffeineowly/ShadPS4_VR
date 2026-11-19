@@ -999,7 +999,23 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     }();
     auto hmd_settings = pp_settings;
     hmd_settings.sharpen = sharpen;
-    hmd_settings.encoded_in = encoded_in ? 1 : 0;
+    // An eye texture of a plain (UNORM) format holds what the headset's display shows as it
+    // is: the PlayStation VR scans it out without conversion (Unreal Engine titles draw into
+    // R8G8B8A8Unorm). Only an sRGB view gives back linear light that has to be encoded.
+    const auto display_encoded = [](vk::Format format) {
+        switch (format) {
+        case vk::Format::eR8G8B8A8Unorm:
+        case vk::Format::eB8G8R8A8Unorm:
+        case vk::Format::eA2B10G10R10UnormPack32:
+        case vk::Format::eA2R10G10B10UnormPack32:
+            return true;
+        default:
+            return false;
+        }
+    };
+    const bool eyes_display_encoded = display_encoded(descs[0].view_info.format) &&
+                                      display_encoded(descs[1].view_info.format);
+    hmd_settings.encoded_in = encoded_in || eyes_display_encoded ? 1 : 0;
     hmd_settings.min_color = {min_color[0], min_color[1], min_color[2], 0.0f};
     if (frame != nullptr) {
         const auto bounds = Core::Vr::SpectatorContentRect(frame->width, frame->height,
