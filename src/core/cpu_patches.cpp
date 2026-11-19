@@ -1716,6 +1716,7 @@ struct DecodedFunction {
     bool uses_red_zone{};
     bool has_indirect_branch{};
     bool requires_conservative_red_zone_tracking{};
+    bool frame_pointer_red_zone{};
 };
 
 struct InstructionRewrite {
@@ -1727,6 +1728,11 @@ struct InstructionRewrite {
 bool IsStackPointerRegister(ZydisRegister reg) {
     return reg != ZYDIS_REGISTER_NONE &&
            ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, reg) == ZYDIS_REGISTER_RSP;
+}
+
+bool IsFramePointerRegister(ZydisRegister reg) {
+    return reg != ZYDIS_REGISTER_NONE &&
+           ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, reg) == ZYDIS_REGISTER_RBP;
 }
 
 bool IsControlFlowTerminator(const ZydisDecodedInstruction& instruction) {
@@ -2069,6 +2075,63 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
     return resolved_targets;
 }
 
+// A function with a frame pointer (push rbp; mov rbp, rsp; push ...) may keep data in its red
+// zone through rbp: below the last push, so below rsp, at [rbp - x]. Such accesses are not seen
+// as stack relative, so the function is marked here: rsp's distance below rbp is taken from the
+// pushes and stack adjustments right after "mov rbp, rsp", and any access through rbp further
+// down than that is in the red zone. The whole function is then protected conservatively.
+void MarkFramePointerRedZone(DecodedFunction& function) {
+    std::optional<s64> rsp_below_rbp;
+    bool in_prologue = false;
+    for (const auto& [address, decoded] : function.instructions) {
+        const auto& operands = decoded.operands;
+        if (!rsp_below_rbp && decoded.instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+            operands[0].reg.value == ZYDIS_REGISTER_RBP &&
+            operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+            operands[1].reg.value == ZYDIS_REGISTER_RSP) {
+            rsp_below_rbp = 0;
+            in_prologue = true;
+            continue;
+        }
+        if (!in_prologue) {
+            continue;
+        }
+        if (decoded.changes_stack_pointer && decoded.stack_pointer_delta.has_value() &&
+            *decoded.stack_pointer_delta < 0) {
+            *rsp_below_rbp += *decoded.stack_pointer_delta;
+            continue;
+        }
+        break;
+    }
+    if (!rsp_below_rbp) {
+        return;
+    }
+
+    for (const auto& [address, decoded] : function.instructions) {
+        if (decoded.instruction.mnemonic == ZYDIS_MNEMONIC_LEA ||
+            decoded.instruction.mnemonic == ZYDIS_MNEMONIC_NOP) {
+            continue;
+        }
+        for (u8 index = 0; index < decoded.instruction.operand_count_visible; ++index) {
+            const auto& operand = decoded.operands[index];
+            if (operand.type != ZYDIS_OPERAND_TYPE_MEMORY ||
+                !IsFramePointerRegister(operand.mem.base) ||
+                operand.mem.index != ZYDIS_REGISTER_NONE) {
+                continue;
+            }
+            const s64 offset = operand.mem.disp.value;
+            if (offset < *rsp_below_rbp &&
+                offset >= *rsp_below_rbp - static_cast<s64>(GuestRedZoneSize)) {
+                function.uses_red_zone = true;
+                function.requires_conservative_red_zone_tracking = true;
+                function.frame_pointer_red_zone = true;
+                return;
+            }
+        }
+    }
+}
+
 DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
                                uintptr_t segment_start, uintptr_t segment_end) {
     DecodedFunction function;
@@ -2144,6 +2207,7 @@ DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
         }
     }
     function.has_indirect_branch = indirect_branches.size() != resolved_indirect_branches.size();
+    MarkFramePointerRedZone(function);
     return function;
 }
 
@@ -2417,6 +2481,7 @@ static RedZonePatchResult PatchSegmentStatically(u64 segment_addr, u64 segment_s
         if (red_zone_protection && function.uses_red_zone) {
             ++result.red_zone_function_count;
             result.indirect_red_zone_function_count += function.has_indirect_branch;
+            result.frame_pointer_red_zone_function_count += function.frame_pointer_red_zone;
             for (const auto& [address, decoded] : function.instructions) {
                 if (!decoded.accesses_memory || !decoded.red_zone_live.any() ||
                     rewrite_sites.contains(address)) {

@@ -398,6 +398,11 @@ void Module::LoadModuleToMemory(u32& max_tls_index) {
                             name);
             }
         } else if (red_zone_protection) {
+            LOG_INFO(Core_Linker,
+                     "Windows guest red-zone static patching for {}: {} red-zone functions, {} of "
+                     "them found through the frame pointer",
+                     name, total.red_zone_function_count,
+                     total.frame_pointer_red_zone_function_count);
             LOG_DEBUG(
                 Core_Linker,
                 "Windows guest red-zone static patching for {}: {} functions, {} instructions, "

@@ -42,6 +42,7 @@ struct RedZonePatchResult {
     u64 control_flow_memory_instruction_count{};
     u64 unrelocatable_memory_instruction_count{};
     u64 indirect_red_zone_function_count{};
+    u64 frame_pointer_red_zone_function_count{};
     u64 cpu_patch_instruction_count{};
     u64 patched_cpu_patch_instruction_count{};
     u64 unsupported_cpu_patch_instruction_count{};
@@ -60,6 +61,7 @@ struct RedZonePatchResult {
         control_flow_memory_instruction_count += other.control_flow_memory_instruction_count;
         unrelocatable_memory_instruction_count += other.unrelocatable_memory_instruction_count;
         indirect_red_zone_function_count += other.indirect_red_zone_function_count;
+        frame_pointer_red_zone_function_count += other.frame_pointer_red_zone_function_count;
         cpu_patch_instruction_count += other.cpu_patch_instruction_count;
         patched_cpu_patch_instruction_count += other.patched_cpu_patch_instruction_count;
         unsupported_cpu_patch_instruction_count += other.unsupported_cpu_patch_instruction_count;
