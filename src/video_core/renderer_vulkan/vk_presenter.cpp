@@ -843,13 +843,15 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     }
     ++logged_frames;
 
-    // The size of an eye's picture: its part of the texture (both eyes share one, side by side,
+    // The size of an eye's picture: its part of the texture (a negative width or height is a
+    // part read flipped) (both eyes share one, side by side,
     // in Unity titles).
     const auto rect_size = [&](u32 eye) {
         const auto& info = texture_cache.GetImage(image_ids[eye]).info;
         return std::pair{
-            std::max(1u, static_cast<u32>(info.size.width * eye_rects[eye][2] + 0.5f)),
-            std::max(1u, static_cast<u32>(info.size.height * eye_rects[eye][3] + 0.5f))};
+            std::max(1u, static_cast<u32>(info.size.width * std::abs(eye_rects[eye][2]) + 0.5f)),
+            std::max(1u,
+                     static_cast<u32>(info.size.height * std::abs(eye_rects[eye][3]) + 0.5f))};
     };
     std::tie(eye_width, eye_height) = rect_size(0);
 

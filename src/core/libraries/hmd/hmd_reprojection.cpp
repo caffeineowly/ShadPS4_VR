@@ -193,8 +193,10 @@ void DumpGuest(std::string_view what, VAddr addr, u32 size) {
 
 constexpr u32 DumpBytes = 0x80;
 
-/// The first argument of sceHmdReprojectionStartMultilayer, as Unity (Fate/Grand Order VR,
-/// CUSA09078) fills it in. Recovered from what the title hands over, not from documentation:
+/// sceHmdReprojectionStartMultilayer(param, layer_count?, unknown*, tracker_state, frame, 0), as
+/// Unity (Fate/Grand Order VR, CUSA09078) calls it. The fourth argument is the head pose the
+/// frame was drawn with, laid out as for sceHmdReprojectionStart; the fifth counts the frames.
+/// The first argument, as Unity fills it in. Recovered from what the title hands over, not from documentation:
 /// two layers of two eye textures, one sampler, then each layer's UV mapping per eye. Unity
 /// draws both eyes side by side into one texture and gives that texture for both eyes.
 struct OrbisHmdReprojectionMultilayerParam {
@@ -217,35 +219,6 @@ std::optional<AmdGpu::Image> ReadEyeImage(const void* pointer) {
         return std::nullopt;
     }
     return image;
-}
-
-/// Where the head pose is: which argument points at it, and at what offset. Searched for once.
-struct PoseLocation {
-    bool searched = false;
-    s32 arg = -1;
-    s32 at = -1;
-};
-PoseLocation g_multilayer_pose;
-
-void FindMultilayerPose(const std::array<u64, 6>& args) {
-    g_multilayer_pose.searched = true;
-    for (s32 arg = 1; arg <= 5; ++arg) {
-        if (!Readable(args[arg], DumpBytes)) {
-            continue;
-        }
-        for (u32 at = 0; at + 7 * sizeof(float) <= DumpBytes; at += 4) {
-            float pose[7];
-            std::memcpy(pose, reinterpret_cast<const u8*>(args[arg]) + at, sizeof(pose));
-            if (PlausiblePose(pose)) {
-                g_multilayer_pose = {.searched = true, .arg = arg, .at = static_cast<s32>(at)};
-                LOG_INFO(Lib_Hmd, "Multilayer: head pose found in argument {} at +{:#x}", arg,
-                         at);
-                return;
-            }
-        }
-    }
-    LOG_WARNING(Lib_Hmd, "Multilayer: no head pose found in the arguments; frames are shown "
-                         "with the pose of the moment");
 }
 
 } // namespace
@@ -301,6 +274,19 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
     Libraries::VideoOut::HmdFrame frame{};
     frame.eye_textures = {*left, *right};
     const auto& uv_left = param.uv[0][0];
+    // A negative scale means the texture runs the other way along that axis (Unity's are
+    // stored bottom-up): that eye's part is then read flipped.
+    const auto flip = [&](u32 eye) {
+        auto& rect = frame.eye_rects[eye];
+        if (param.uv[0][eye].scale_x < 0.0f) {
+            rect[0] += rect[2];
+            rect[2] = -rect[2];
+        }
+        if (param.uv[0][eye].scale_y < 0.0f) {
+            rect[1] += rect[3];
+            rect[3] = -rect[3];
+        }
+    };
     if (param.texture[0][0] == param.texture[0][1]) {
         // Both eyes in one texture, side by side: each eye is its half, and the UV of the left
         // eye says how far its picture reaches to each side of straight ahead.
@@ -316,6 +302,8 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
     } else {
         frame.fov = FovFromUv(uv_left);
     }
+    flip(0);
+    flip(1);
     if (!(std::isfinite(frame.fov.tan_out) && frame.fov.tan_out > 0.1f &&
           std::isfinite(frame.fov.tan_in) && frame.fov.tan_in > 0.1f &&
           std::isfinite(frame.fov.tan_top) && frame.fov.tan_top > 0.1f &&
@@ -323,18 +311,19 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
         frame.fov = Core::Vr::Runtime::Instance().GetConfig().fov;
     }
 
-    if (!g_multilayer_pose.searched) {
-        FindMultilayerPose(args);
-    }
-    if (g_multilayer_pose.arg >= 0) {
-        const VAddr where = args[g_multilayer_pose.arg] + g_multilayer_pose.at;
+    // The pose the frame was drawn with. Without it the headset would show every frame as if
+    // drawn looking straight ahead: a picture pinned in one place.
+    if (Readable(arg3, sizeof(OrbisHmdReprojectionTrackerState))) {
+        const auto& tracker_state = *reinterpret_cast<const OrbisHmdReprojectionTrackerState*>(arg3);
         float pose[7];
-        if (Readable(where & ~3ULL, sizeof(pose))) {
-            std::memcpy(pose, reinterpret_cast<const void*>(where), sizeof(pose));
-            if (PlausiblePose(pose)) {
-                frame.render_pose = {.position{pose[0], pose[1], pose[2]},
-                                     .orientation{pose[3], pose[4], pose[5], pose[6]}};
-            }
+        std::memcpy(pose, tracker_state.position, sizeof(tracker_state.position));
+        std::memcpy(pose + 3, tracker_state.orientation, sizeof(tracker_state.orientation));
+        if (PlausiblePose(pose)) {
+            frame.render_pose = {.position{pose[0], pose[1], pose[2]},
+                                 .orientation{pose[3], pose[4], pose[5], pose[6]}};
+        } else if (call < 10) {
+            LOG_WARNING(Lib_Hmd, "Multilayer call {}: no usable head pose in the fourth argument",
+                        call);
         }
     }
     // Not known yet which argument, if any, is the flip argument: the fifth counts up with
