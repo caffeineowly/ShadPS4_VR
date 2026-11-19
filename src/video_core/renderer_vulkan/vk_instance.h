@@ -75,6 +75,16 @@ public:
         return present_queue;
     }
 
+    /// The queue a headset's runtime is given, and its index in the graphics family: one of its
+    /// own where the family has more than one, so that a runtime that holds on to it for long
+    /// never holds up the title's work; else the graphics queue (index 0).
+    vk::Queue GetXrQueue() const {
+        return xr_queue;
+    }
+    u32 GetXrQueueIndex() const {
+        return xr_queue_index;
+    }
+
     TracyVkCtx GetProfilerContext() const {
         return profiler_context;
     }
@@ -521,6 +531,8 @@ private:
     std::string vendor_name;
     VmaAllocator allocator{};
     vk::Queue present_queue;
+    vk::Queue xr_queue;
+    u32 xr_queue_index{};
     vk::Queue graphics_queue;
     std::vector<vk::PhysicalDevice> physical_devices;
     std::vector<std::string> available_extensions;

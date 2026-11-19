@@ -95,6 +95,18 @@ if (NOT TARGET GPUOpen::VulkanMemoryAllocator)
     add_subdirectory(vma)
 endif()
 
+# OpenXR loader (Khronos OpenXR-SDK, Apache-2.0), linked statically, to reach the PC's headset
+if (ENABLE_OPENXR AND NOT TARGET OpenXR::openxr_loader)
+    set(BUILD_TESTS OFF)
+    set(BUILD_API_LAYERS OFF)
+    set(BUILD_CONFORMANCE_TESTS OFF)
+    set(BUILD_SDK_TESTS OFF)
+    set(DYNAMIC_LOADER OFF)
+    # A system jsoncpp cannot be exported with the static loader.
+    set(BUILD_WITH_SYSTEM_JSONCPP OFF)
+    add_subdirectory(openxr-sdk)
+endif()
+
 # RenderDoc
 if (NOT TARGET RenderDoc::API)
     add_library(renderdoc INTERFACE)

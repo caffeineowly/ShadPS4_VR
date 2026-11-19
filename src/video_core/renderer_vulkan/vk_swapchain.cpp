@@ -10,6 +10,9 @@
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
+#ifdef ENABLE_OPENXR_HOST
+#include "core/vr/openxr_host.h"
+#endif
 
 namespace Vulkan {
 
@@ -218,6 +221,24 @@ void Swapchain::FindPresentMode() {
                     vk::to_string(present_mode), vk::to_string(fallback));
         present_mode = fallback;
     }
+
+#ifdef ENABLE_OPENXR_HOST
+    // With a headset of the machine's own to show frames in, the window only gets a look at
+    // them: it must never hold the thread that shows them up until the monitor's next refresh.
+    if (Core::Vr::OpenXrHost::Instance().IsAvailable() &&
+        present_mode != vk::PresentModeKHR::eMailbox &&
+        present_mode != vk::PresentModeKHR::eImmediate) {
+        for (const auto mode : {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate}) {
+            if (std::ranges::find(modes, mode) != modes.cend()) {
+                LOG_INFO(Render, "The window is presented with {} instead of {}: the headset "
+                                 "sets the pace",
+                         vk::to_string(mode), vk::to_string(present_mode));
+                present_mode = mode;
+                break;
+            }
+        }
+    }
+#endif
 }
 
 void Swapchain::SetSurfaceProperties() {

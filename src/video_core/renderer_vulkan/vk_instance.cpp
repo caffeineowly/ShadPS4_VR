@@ -14,6 +14,9 @@
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#ifdef ENABLE_OPENXR_HOST
+#include "core/vr/openxr_host.h"
+#endif
 
 #include <vk_mem_alloc.h>
 
@@ -105,6 +108,25 @@ Instance::Instance(Frontend::WindowSDL& window, s32 physical_device_index,
     const std::size_t num_physical_devices = static_cast<u16>(physical_devices.size());
     ASSERT_MSG(num_physical_devices > 0, "No physical devices found");
     LOG_INFO(Render_Vulkan, "Found {} physical devices", num_physical_devices);
+
+#ifdef ENABLE_OPENXR_HOST
+    // A headset of the machine's own is driven from one graphics card, and takes pictures from
+    // nowhere else.
+    if (const vk::PhysicalDevice headset_device =
+            Core::Vr::OpenXrHost::Instance().PreferredPhysicalDevice(*instance)) {
+        const auto it = std::ranges::find(physical_devices, headset_device);
+        if (it != physical_devices.end()) {
+            const s32 index = static_cast<s32>(std::distance(physical_devices.begin(), it));
+            if (physical_device_index >= 0 && physical_device_index != index) {
+                LOG_WARNING(Render_Vulkan,
+                            "The headset is driven by graphics card {}, which is used instead "
+                            "of the configured {}",
+                            index, physical_device_index);
+            }
+            physical_device_index = index;
+        }
+    }
+#endif
 
     if (physical_device_index < 0) {
         std::vector<
@@ -238,7 +260,13 @@ bool Instance::CreateDevice() {
         return false;
     }
 
-    boost::container::static_vector<const char*, 32> enabled_extensions;
+#ifdef ENABLE_OPENXR_HOST
+    // What the runtime of the machine's own headset wants of a device it is handed pictures
+    // by. (The names have to outlive the making of the device.)
+    const std::vector<std::string> headset_extensions =
+        Core::Vr::OpenXrHost::Instance().VulkanDeviceExtensions();
+#endif
+    boost::container::static_vector<const char*, 64> enabled_extensions;
     const auto add_extension = [&](std::string_view extension) -> bool {
         const auto result =
             std::find_if(available_extensions.begin(), available_extensions.end(),
@@ -366,6 +394,14 @@ bool Instance::CreateDevice() {
         LOG_INFO(Render_Vulkan, "- shaderSubgroupClock: {}",
                  shader_clock_features.shaderSubgroupClock);
     }
+#ifdef ENABLE_OPENXR_HOST
+    for (const std::string& name : headset_extensions) {
+        if (std::ranges::none_of(enabled_extensions,
+                                 [&](const char* enabled) { return name == enabled; })) {
+            add_extension(name);
+        }
+    }
+#endif
     const bool calibrated_timestamps =
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
 
@@ -389,10 +425,18 @@ bool Instance::CreateDevice() {
         return false;
     }
 
+#ifdef ENABLE_OPENXR_HOST
+    // A second queue of the same family, where there is one, for a headset's runtime (see
+    // GetXrQueue).
+    static constexpr std::array queue_priorities = {1.0f, 1.0f};
+#else
     static constexpr std::array queue_priorities = {1.0f};
+#endif
+    const u32 queue_count = std::min<u32>(family_properties[queue_family_index].queueCount,
+                                          static_cast<u32>(queue_priorities.size()));
     const vk::DeviceQueueCreateInfo queue_info = {
         .queueFamilyIndex = queue_family_index,
-        .queueCount = static_cast<u32>(queue_priorities.size()),
+        .queueCount = queue_count,
         .pQueuePriorities = queue_priorities.data(),
     };
 
@@ -614,6 +658,8 @@ bool Instance::CreateDevice() {
 
     graphics_queue = device->getQueue(queue_family_index, 0);
     present_queue = device->getQueue(queue_family_index, 0);
+    xr_queue_index = queue_count > 1 ? 1 : 0;
+    xr_queue = device->getQueue(queue_family_index, xr_queue_index);
 
     if (calibrated_timestamps) {
         const auto [time_domains_result, time_domains] =

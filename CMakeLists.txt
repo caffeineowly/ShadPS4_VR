@@ -41,6 +41,10 @@ option(ENABLE_DISCORD_RPC "Enable the Discord RPC integration" ON)
 option(ENABLE_UPDATER "Enables the options to updater" ON)
 option(ENABLE_TESTS "Build unit tests (requires GTest)" OFF)
 option(ENABLE_SYSTEM_LIBRARIES "Enable building against system libraries" OFF)
+# The headset of the machine the emulator runs on, through that machine's OpenXR runtime
+# (SteamVR, Virtual Desktop, Meta, Pimax, ...): where the frames of an emulated PlayStation VR are shown.
+# Ported from bigmak94/AstroQuest.
+cmake_dependent_option(ENABLE_OPENXR "Show the emulated headset's frames in a headset of this machine" ON "WIN32 OR CMAKE_SYSTEM_NAME STREQUAL \"Linux\"" OFF)
 
 # First, determine whether to use CMAKE_OSX_ARCHITECTURES or CMAKE_SYSTEM_PROCESSOR.
 if (APPLE AND CMAKE_OSX_ARCHITECTURES)
@@ -737,7 +741,22 @@ set(VR_LIBS  src/core/libraries/hmd/hmd.cpp
              src/core/libraries/hmd/vrservicedialog.h
              src/core/libraries/vr_tracker/vr_tracker.cpp
              src/core/libraries/vr_tracker/vr_tracker.h
+             src/core/vr/headset_fov_cache.h
+             src/core/vr/late_frame_wait.h
+             src/core/vr/mirror_limiter.h
+             src/core/vr/openxr_view.h
+             src/core/vr/spectator_view.h
+             src/core/vr/vr_host_link.cpp
+             src/core/vr/vr_host_link.h
+             src/core/vr/vr_protocol.h
+             src/core/vr/vr_runtime.cpp
+             src/core/vr/vr_runtime.h
 )
+if (ENABLE_OPENXR)
+    list(APPEND VR_LIBS src/core/vr/openxr_host.cpp
+                        src/core/vr/openxr_host.h
+    )
+endif()
 
 set(MISC_LIBS  src/core/libraries/screenshot/screenshot.cpp
                src/core/libraries/screenshot/screenshot.h
@@ -1228,6 +1247,8 @@ set(VIDEO_CORE src/video_core/amdgpu/cb_db_extent.h
                src/video_core/renderer_vulkan/vk_staging_buffer_pool.h
                src/video_core/renderer_vulkan/vk_swapchain.cpp
                src/video_core/renderer_vulkan/vk_swapchain.h
+               src/video_core/renderer_vulkan/vk_vr_exporter.cpp
+               src/video_core/renderer_vulkan/vk_vr_exporter.h
                src/video_core/renderer_vulkan/host_passes/fsr_pass.cpp
                src/video_core/renderer_vulkan/host_passes/fsr_pass.h
                src/video_core/renderer_vulkan/host_passes/pp_pass.cpp
@@ -1297,6 +1318,13 @@ set(IMGUI src/imgui/imgui_config.h
 
 set(INPUT src/input/controller.cpp
           src/input/controller.h
+          src/input/moved_finger.h
+          src/input/pad_gestures.h
+          src/input/pad_source.h
+          src/input/scripted_input.cpp
+          src/input/scripted_input.h
+          src/input/stick_finger.h
+          src/input/view_turn.h
           src/input/controller_state.cpp
           src/input/input_handler.cpp
           src/input/input_handler.h
@@ -1363,6 +1391,11 @@ target_link_libraries(shadps4 PRIVATE magic_enum::magic_enum fmt::fmt toml11::to
 target_link_libraries(shadps4 PRIVATE Boost::headers GPUOpen::VulkanMemoryAllocator LibAtrac9 sirit Vulkan::Headers xxHash::xxhash Zydis::Zydis SDL3::SDL3 pugixml::pugixml)
 target_link_libraries(shadps4 PRIVATE stb::headers lfreist-hwinfo::hwinfo nlohmann_json::nlohmann_json miniz::miniz fdk-aac CLI11::CLI11 OpenAL::OpenAL Cpp_Httplib miniupnpc::miniupnpc)
 target_link_libraries(shadps4 PRIVATE Freetype::Freetype)
+
+if (ENABLE_OPENXR)
+    target_compile_definitions(shadps4 PRIVATE ENABLE_OPENXR_HOST)
+    target_link_libraries(shadps4 PRIVATE OpenXR::openxr_loader)
+endif()
 target_link_libraries(shadps4 PRIVATE libprotobuf)
 target_link_libraries(shadps4 PRIVATE ZArchive::zarchive)
 target_link_libraries(shadps4 PRIVATE zstd::libzstd)
