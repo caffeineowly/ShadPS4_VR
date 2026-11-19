@@ -6,7 +6,10 @@
 #include <atomic>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
+
+#include <fmt/ranges.h>
 
 #include "common/logging/log.h"
 #include "core/libraries/error_codes.h"
@@ -149,6 +152,11 @@ s32 PS4_SYSV_ABI sceVrTrackerInit(const OrbisVrTrackerInitParam* param) {
     if (g_library_initialized) {
         return ORBIS_VR_TRACKER_ERROR_ALREADY_INITIALIZED;
     }
+    if (param == nullptr || param->direct_memory_garlic == nullptr ||
+        param->direct_memory_onion == nullptr || param->work_memory == nullptr) {
+        LOG_ERROR(Lib_VrTracker, "rejected: a parameter or memory pointer is null");
+        return ORBIS_VR_TRACKER_ERROR_ARGUMENT_INVALID;
+    }
 
     // Calculate correct onion size for parameter checks
     u32 required_onion_size = ORBIS_VR_TRACKER_BASE_ONION_SIZE;
@@ -156,66 +164,74 @@ s32 PS4_SYSV_ABI sceVrTrackerInit(const OrbisVrTrackerInitParam* param) {
         required_onion_size *= 2;
     }
 
-    // Parameter checks are fairly thorough here.
-    if (param->size != sizeof(OrbisVrTrackerInitParam) ||
-        // Check garlic memory parameters
-        param->direct_memory_garlic == nullptr ||
-        param->direct_memory_garlic_alignment != ORBIS_VR_TRACKER_MEMORY_ALIGNMENT ||
-        param->direct_memory_garlic_size != ORBIS_VR_TRACKER_GARLIC_SIZE ||
-        // Check onion memory parameters
-        param->direct_memory_onion == nullptr ||
-        param->direct_memory_onion_alignment != ORBIS_VR_TRACKER_MEMORY_ALIGNMENT ||
-        param->direct_memory_onion_size != required_onion_size ||
-        // Check work memory parameters
-        param->work_memory == nullptr ||
-        param->work_memory_alignment != ORBIS_VR_TRACKER_MEMORY_ALIGNMENT ||
-        param->work_memory_size != ORBIS_VR_TRACKER_WORK_SIZE ||
-        // Check compute queue parameters
-        param->gpu_pipe_id >= AmdGpu::Liverpool::NumComputePipes ||
-        param->gpu_queue_id >= AmdGpu::Liverpool::NumQueuesPerPipe ||
-        // Check calibration settings
-        param->calibration_settings.pad_position >
-            OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO ||
-        param->calibration_settings.hmd_position >
-            OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_MANUAL ||
-        param->calibration_settings.move_position >
-            OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO ||
-        param->calibration_settings.gun_position >
-            OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO) {
-        return ORBIS_VR_TRACKER_ERROR_ARGUMENT_INVALID;
+    // What the console's library would check. The memory is only kept here - the host tracks
+    // the devices, nothing of the tracker's own runs in it - so a title built against another
+    // SDK version that differs in these is let through, and what differs is logged.
+    std::vector<std::string> differences;
+    const auto expect = [&](bool ok, std::string what) {
+        if (!ok) {
+            differences.push_back(std::move(what));
+        }
+    };
+    expect(param->size == sizeof(OrbisVrTrackerInitParam),
+           fmt::format("size {} (expected {})", param->size, sizeof(OrbisVrTrackerInitParam)));
+    expect(param->direct_memory_garlic_alignment == ORBIS_VR_TRACKER_MEMORY_ALIGNMENT,
+           fmt::format("garlic alignment {:#x}", param->direct_memory_garlic_alignment));
+    expect(param->direct_memory_garlic_size == ORBIS_VR_TRACKER_GARLIC_SIZE,
+           fmt::format("garlic size {:#x} (expected {:#x})", param->direct_memory_garlic_size,
+                       ORBIS_VR_TRACKER_GARLIC_SIZE));
+    expect(param->direct_memory_onion_alignment == ORBIS_VR_TRACKER_MEMORY_ALIGNMENT,
+           fmt::format("onion alignment {:#x}", param->direct_memory_onion_alignment));
+    expect(param->direct_memory_onion_size == required_onion_size,
+           fmt::format("onion size {:#x} (expected {:#x})", param->direct_memory_onion_size,
+                       required_onion_size));
+    expect(param->work_memory_alignment == ORBIS_VR_TRACKER_MEMORY_ALIGNMENT,
+           fmt::format("work alignment {:#x}", param->work_memory_alignment));
+    expect(param->work_memory_size == ORBIS_VR_TRACKER_WORK_SIZE,
+           fmt::format("work size {:#x} (expected {:#x})", param->work_memory_size,
+                       ORBIS_VR_TRACKER_WORK_SIZE));
+    expect(param->gpu_pipe_id < AmdGpu::Liverpool::NumComputePipes &&
+               param->gpu_queue_id < AmdGpu::Liverpool::NumQueuesPerPipe,
+           fmt::format("gpu pipe {} queue {}", param->gpu_pipe_id, param->gpu_queue_id));
+    expect(param->calibration_settings.pad_position <=
+                   OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO &&
+               param->calibration_settings.hmd_position <=
+                   OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_MANUAL &&
+               param->calibration_settings.move_position <=
+                   OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO &&
+               param->calibration_settings.gun_position <=
+                   OrbisVrTrackerCalibrationMode::ORBIS_VR_TRACKER_CALIBRATION_AUTO,
+           fmt::format("calibration modes hmd {} pad {} move {} gun {}",
+                       static_cast<u32>(param->calibration_settings.hmd_position),
+                       static_cast<u32>(param->calibration_settings.pad_position),
+                       static_cast<u32>(param->calibration_settings.move_position),
+                       static_cast<u32>(param->calibration_settings.gun_position)));
+    if (!differences.empty()) {
+        LOG_WARNING(Lib_VrTracker, "accepted although it differs from what the library checks: {}",
+                    fmt::join(differences, ", "));
     }
 
-    // Real hardware will segfault if any of the supplied mappings aren't long enough,
-    // Validate each of them to ensure nothing weird can occur when this library is implemented.
+    // The memory handed over has to be mapped for as long as it says.
     auto* memory = Core::Memory::Instance();
-    Libraries::Kernel::OrbisVirtualQueryInfo info;
-    // The memory type for the whole range should be the same here,
-    // so the memory should be contained in one VMA.
-    VAddr addr_to_check = std::bit_cast<VAddr>(param->direct_memory_garlic);
-    s32 result = memory->VirtualQuery(addr_to_check, 0, &info);
-    ASSERT_MSG(result == 0 && info.end - addr_to_check >= param->direct_memory_garlic_size,
-               "Insufficient garlic memory provided");
+    const auto check_mapping = [&](const void* pointer, u32 size, std::string_view what) {
+        Libraries::Kernel::OrbisVirtualQueryInfo info;
+        const VAddr address = std::bit_cast<VAddr>(pointer);
+        if (memory->VirtualQuery(address, 0, &info) != 0 || info.end - address < size) {
+            LOG_WARNING(Lib_VrTracker, "{} memory at {:#x} is shorter than its size {:#x}", what,
+                        address, size);
+        }
+    };
+    check_mapping(param->direct_memory_garlic, param->direct_memory_garlic_size, "garlic");
+    check_mapping(param->direct_memory_onion, param->direct_memory_onion_size, "onion");
+    check_mapping(param->work_memory, param->work_memory_size, "work");
 
     g_garlic_memory_pointer = param->direct_memory_garlic;
     g_garlic_size = param->direct_memory_garlic_size;
-
-    addr_to_check = std::bit_cast<VAddr>(param->direct_memory_onion);
-    result = memory->VirtualQuery(addr_to_check, 0, &info);
-    ASSERT_MSG(result == 0 && info.end - addr_to_check >= param->direct_memory_onion_size,
-               "Insufficient onion memory provided");
-
     g_onion_memory_pointer = param->direct_memory_onion;
     g_onion_size = param->direct_memory_onion_size;
-
-    addr_to_check = std::bit_cast<VAddr>(param->work_memory);
-    result = memory->VirtualQuery(addr_to_check, 0, &info);
-    ASSERT_MSG(result == 0 && info.end - addr_to_check >= param->work_memory_size,
-               "Insufficient work memory provided");
-
     g_work_memory_pointer = param->work_memory;
     g_work_size = param->work_memory_size;
 
-    // All initialization checks passed.
     LOG_INFO(Lib_VrTracker, "called, virtual headset connected = {}", HeadsetConnected());
     g_library_initialized = true;
 
