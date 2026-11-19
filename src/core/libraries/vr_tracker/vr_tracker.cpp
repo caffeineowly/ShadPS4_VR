@@ -469,8 +469,17 @@ s32 PS4_SYSV_ABI sceVrTrackerGpuSubmit(const OrbisVrTrackerGpuSubmitParam* param
         // Impossible to submit valid data here since sceCameraGetFrameData returns an error.
         return ORBIS_VR_TRACKER_ERROR_ARGUMENT_INVALID;
     }
-    if (param == nullptr || param->size != sizeof(OrbisVrTrackerGpuSubmitParam)) {
+    if (param == nullptr) {
         return ORBIS_VR_TRACKER_ERROR_ARGUMENT_INVALID;
+    }
+    if (param->size != sizeof(OrbisVrTrackerGpuSubmitParam)) {
+        // Another SDK version's structure: nothing in it is read (see below), so it is let
+        // through, as by sceVrTrackerInit.
+        static std::once_flag logged;
+        std::call_once(logged, [&] {
+            LOG_WARNING(Lib_VrTracker, "GpuSubmit parameter size {} (expected {}), accepted",
+                        param->size, sizeof(OrbisVrTrackerGpuSubmitParam));
+        });
     }
 
     // The camera frame would be analysed on the GPU here. The host tracks the devices instead.
@@ -613,7 +622,11 @@ s32 PS4_SYSV_ABI sceVrTrackerSetRestingMode() {
 
 s32 PS4_SYSV_ABI
 sceVrTrackerUpdateMotionSensorData(const OrbisVrTrackerUpdateMotionSensorDataParam* param) {
-    LOG_ERROR(Lib_VrTracker, "(STUBBED) called");
+    // Motion sensor data for the tracker's sensor fusion: the host's headset tracks itself.
+    LOG_TRACE(Lib_VrTracker, "called");
+    if (!g_library_initialized) {
+        return ORBIS_VR_TRACKER_ERROR_NOT_INIT;
+    }
     return ORBIS_OK;
 }
 

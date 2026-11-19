@@ -74,6 +74,42 @@ Core::Vr::Fov FovFromUv(const OrbisHmdReprojectionEyeUv& left_eye) {
 }
 
 
+/// Where each eye's picture is in the textures handed over, and how far it reaches to each side
+/// of straight ahead. Unity and Unreal Engine titles draw both eyes side by side into one
+/// texture and hand that texture over for both eyes; others (ASTRO BOT) give one texture each.
+void ApplyEyeLayout(Libraries::VideoOut::HmdFrame& frame, bool shared_texture,
+                    const OrbisHmdReprojectionEyeUv (&uv)[2]) {
+    const auto& uv_left = uv[0];
+    if (shared_texture) {
+        // Each eye is its half, and the UV of the left eye says how far its picture reaches
+        // to each side of straight ahead.
+        frame.eye_rects = {{{0.0f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}}};
+        const float sx = std::abs(uv_left.scale_x);
+        const float sy = std::abs(uv_left.scale_y);
+        frame.fov = {
+            .tan_out = uv_left.offset_x / sx,
+            .tan_in = (0.5f - uv_left.offset_x) / sx,
+            .tan_top = uv_left.offset_y / sy,
+            .tan_bottom = (1.0f - uv_left.offset_y) / sy,
+        };
+    } else {
+        frame.fov = FovFromUv(uv_left);
+    }
+    // A negative scale means the texture runs the other way along that axis (Unity's are
+    // stored bottom-up): that eye's part is then read flipped.
+    for (u32 eye = 0; eye < 2; ++eye) {
+        auto& rect = frame.eye_rects[eye];
+        if (uv[eye].scale_x < 0.0f) {
+            rect[0] += rect[2];
+            rect[2] = -rect[2];
+        }
+        if (uv[eye].scale_y < 0.0f) {
+            rect[1] += rect[3];
+            rect[3] = -rect[3];
+        }
+    }
+}
+
 /// Queues one stereo frame for the headset: what sceHmdReprojectionStart and its variants end in.
 s32 SubmitFrame(Libraries::VideoOut::HmdFrame& frame) {
     s32 video_out_handle;
@@ -272,36 +308,7 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStartMultilayer(u64 arg0, u64 arg1, u64 arg2,
     Libraries::VideoOut::HmdFrame frame{};
     frame.eye_textures = {*left, *right};
     const auto& uv_left = param.uv[0][0];
-    // A negative scale means the texture runs the other way along that axis (Unity's are
-    // stored bottom-up): that eye's part is then read flipped.
-    const auto flip = [&](u32 eye) {
-        auto& rect = frame.eye_rects[eye];
-        if (param.uv[0][eye].scale_x < 0.0f) {
-            rect[0] += rect[2];
-            rect[2] = -rect[2];
-        }
-        if (param.uv[0][eye].scale_y < 0.0f) {
-            rect[1] += rect[3];
-            rect[3] = -rect[3];
-        }
-    };
-    if (param.texture[0][0] == param.texture[0][1]) {
-        // Both eyes in one texture, side by side: each eye is its half, and the UV of the left
-        // eye says how far its picture reaches to each side of straight ahead.
-        frame.eye_rects = {{{0.0f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}}};
-        const float sx = std::abs(uv_left.scale_x);
-        const float sy = std::abs(uv_left.scale_y);
-        frame.fov = {
-            .tan_out = uv_left.offset_x / sx,
-            .tan_in = (0.5f - uv_left.offset_x) / sx,
-            .tan_top = uv_left.offset_y / sy,
-            .tan_bottom = (1.0f - uv_left.offset_y) / sy,
-        };
-    } else {
-        frame.fov = FovFromUv(uv_left);
-    }
-    flip(0);
-    flip(1);
+    ApplyEyeLayout(frame, param.texture[0][0] == param.texture[0][1], param.uv[0]);
     if (!(std::isfinite(frame.fov.tan_out) && frame.fov.tan_out > 0.1f &&
           std::isfinite(frame.fov.tan_in) && frame.fov.tan_in > 0.1f &&
           std::isfinite(frame.fov.tan_top) && frame.fov.tan_top > 0.1f &&
@@ -476,7 +483,10 @@ s32 PS4_SYSV_ABI sceHmdReprojectionStart(const OrbisHmdReprojectionParam* param,
     Libraries::VideoOut::HmdFrame frame{};
     std::memcpy(&frame.eye_textures[0], param->texture[0], sizeof(AmdGpu::Image));
     std::memcpy(&frame.eye_textures[1], param->texture[1], sizeof(AmdGpu::Image));
-    frame.fov = FovFromUv(param->uv[0]);
+    ApplyEyeLayout(frame,
+                   param->texture[0] == param->texture[1] ||
+                       frame.eye_textures[0].Address() == frame.eye_textures[1].Address(),
+                   param->uv);
     frame.render_pose = {
         .position{tracker_state->position[0], tracker_state->position[1],
                   tracker_state->position[2]},
