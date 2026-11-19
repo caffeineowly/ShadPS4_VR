@@ -36,6 +36,9 @@ public:
         float centre_radius = 0.0f;
         /// The part of the input that is drawn: u, v, width, height. Set per Region by Render.
         std::array<float, 4> uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
+        /// The darkest the output shows each channel (rgb; a headset's black level): the
+        /// picture is shown from there up. All 0: as it is.
+        std::array<float, 4> min_color{};
     };
 
     void Create(vk::Device device, vk::Format surface_format);

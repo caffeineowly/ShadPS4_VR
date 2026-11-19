@@ -157,6 +157,8 @@ struct HmdFrame {
     /// by side into a single texture).
     std::array<std::array<float, 4>, 2> eye_rects{{{0.0f, 0.0f, 1.0f, 1.0f},
                                                    {0.0f, 0.0f, 1.0f, 1.0f}}};
+    /// The darkest the headset shows each channel (sceHmdReprojectionSetOutputMinColor).
+    std::array<float, 3> min_color{};
 };
 
 // Internal system functions

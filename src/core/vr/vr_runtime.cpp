@@ -129,6 +129,10 @@ FileConfig LoadFileConfig() {
                                      (*it)[2].get<float>()};
             }
             config.pad_follows_head = json.value("pad_anchor", "head") != "seat";
+            // "fov": "headset" (the PC headset's own field of view) or "psvr".
+            if (const auto it = json.find("fov"); it != json.end() && it->is_string()) {
+                config.fov_from_headset = it->get<std::string>() != "psvr";
+            }
             if (const auto it = json.find("fov_tan");
                 it != json.end() && it->is_array() && it->size() == 4) {
                 config.fov = {(*it)[0].get<float>(), (*it)[1].get<float>(), (*it)[2].get<float>(),
@@ -163,7 +167,7 @@ FileConfig LoadFileConfig() {
     // SHADPS4_VR_FOV_OF=headset: the percent is of what the host's headset shows (its whole
     // view at 100), not of a PlayStation VR's.
     if (const char* of = std::getenv("SHADPS4_VR_FOV_OF"); of != nullptr) {
-        result.config.fov_from_headset = std::string_view{of} == "headset";
+        result.config.fov_from_headset = std::string_view{of} != "psvr";
     }
     if (const char* symmetric = std::getenv("SHADPS4_VR_FOV_SYMMETRIC"); symmetric != nullptr) {
         result.config.fov_symmetric = std::string_view{symmetric} == "1";

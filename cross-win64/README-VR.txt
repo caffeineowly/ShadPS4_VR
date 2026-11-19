@@ -38,13 +38,18 @@ Configuration (optional)
 ------------------------
 vr.json in the user folder (see vr.json.example):
   "headset": "auto" | "on" | "off"
+  "fov": "headset" | "psvr"   the field of view the game is told of: your headset's
+                               own (default; fills the view) or a PlayStation VR's
+                               (about 100 x 103 degrees, black border on wider headsets)
   "refresh_rate": 60..120 (what the game is told the PSVR refreshes at)
   "ipd_mm": interpupillary distance
   "pad_anchor": "head" | "seat"   where an untracked gamepad is placed
 
 Environment variables (set before starting shadps4.exe):
   SHADPS4_VR=1/0               force the virtual headset on / off
-  SHADPS4_VR_FOV=<50..120>     % of the PSVR field of view the game renders
+  SHADPS4_VR_FOV=<50..120>     % of the field of view the game renders (fewer degrees
+                               on the same pixels: sharper, with a border)
+  SHADPS4_VR_FOV_OF=psvr       render for a PlayStation VR's field of view
   SHADPS4_VR_DESKTOP_VIEW=stereo|left|combined   what the desktop window shows
   SHADPS4_VR_WINDOW_FPS=<n>    limit the desktop mirror (default 60, 0 = never)
   SHADPS4_XR_HANDS=0           don't use hand tracking to place the gamepad

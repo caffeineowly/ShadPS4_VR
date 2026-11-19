@@ -115,8 +115,15 @@ struct Config {
     float ipd{0.063f};
     Fov fov{};
     /// The field of view the title is told of is the headset's own (as the host found it), not
-    /// a PlayStation VR's; fov_scale applies to either.
+    /// a PlayStation VR's; fov_scale applies to either. On by default where the PC's own headset
+    /// shows the frames (a PC headset usually sees more than a PlayStation VR, and the title
+    /// would otherwise leave a black border around its picture); vr.json "fov": "psvr" or
+    /// SHADPS4_VR_FOV_OF=psvr turns it off.
+#ifdef ENABLE_OPENXR_HOST
+    bool fov_from_headset{true};
+#else
     bool fov_from_headset{false};
+#endif
     /// Use matching render bounds for both eyes, enclosing the detected headset frusta.
     /// This preserves binocular coverage when a standalone host narrows the view.
     bool fov_symmetric{false};

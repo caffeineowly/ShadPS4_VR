@@ -120,6 +120,7 @@ public:
     /// `eye_rects`: the part of each texture that is that eye's picture (u, v, width, height).
     HmdFrames PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textures,
                               std::span<const std::array<float, 4>, 2> eye_rects,
+                              const std::array<float, 3>& min_color,
                               const Core::Vr::Fov& fov, u32 frame_id,
                               u32& eye_width, u32& eye_height);
 

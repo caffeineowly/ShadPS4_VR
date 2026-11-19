@@ -816,6 +816,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
 
 HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textures,
                                     std::span<const std::array<float, 4>, 2> eye_rects,
+                                    const std::array<float, 3>& min_color,
                                     const Core::Vr::Fov& fov, u32 frame_id,
                                     u32& eye_width, u32& eye_height) {
     // The guest hands the eyes over as plain textures; they were rendered as color targets, so
@@ -999,6 +1000,7 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     auto hmd_settings = pp_settings;
     hmd_settings.sharpen = sharpen;
     hmd_settings.encoded_in = encoded_in ? 1 : 0;
+    hmd_settings.min_color = {min_color[0], min_color[1], min_color[2], 0.0f};
     if (frame != nullptr) {
         const auto bounds = Core::Vr::SpectatorContentRect(frame->width, frame->height,
                                                         desktop_aspect, crop);

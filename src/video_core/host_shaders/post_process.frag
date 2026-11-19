@@ -29,6 +29,9 @@ layout (push_constant) uniform settings {
     float centre_radius;
     // The part of the texture drawn: u, v, width, height (an eye of a side by side texture).
     vec4 uv_rect;
+    // The darkest the output shows each channel (rgb): the picture is shown from there up, as
+    // a PlayStation VR does for titles that set it (sceHmdReprojectionSetOutputMinColor).
+    vec4 min_color;
 } pp;
 
 const float cutoff = 0.0031308, a = 1.055, b = 0.055, d = 12.92;
@@ -90,6 +93,7 @@ void main() {
         here = clamp(((above + below + left + right) * weight + here) / (1.0 + 4.0 * weight),
                      0.0, 1.0);
     }
+    here = pp.min_color.rgb + here * (1.0 - pp.min_color.rgb);
     if (pp.linear_out && !pp.hdr) {
         // Back to linear light, by the curve the target encodes with.
         here = mix(pow((here + 0.055) / 1.055, vec3(2.4)), here / 12.92,

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -50,6 +51,8 @@ struct Reprojection {
     s32 video_out_handle{-1};
     s32 display_index[2]{-1, -1};
     u32 submitted_frames{};
+    /// sceHmdReprojectionSetOutputMinColor: the darkest the headset shows each channel.
+    std::array<float, 3> min_color{};
     UserEvent start_event;
     UserEvent end_event;
 };
@@ -84,6 +87,7 @@ s32 SubmitFrame(Libraries::VideoOut::HmdFrame& frame) {
         frame_number = g_reprojection.submitted_frames++;
         // The reprojection alternates between the two display buffers it was given.
         frame.display_index = g_reprojection.display_index[frame_number & 1];
+        frame.min_color = g_reprojection.min_color;
     }
 
     if (frame_number < 4) {
@@ -440,7 +444,14 @@ s32 PS4_SYSV_ABI sceHmdReprojectionSetDisplayBuffers(s32 video_out_handle, s32 i
 }
 
 s32 PS4_SYSV_ABI sceHmdReprojectionSetOutputMinColor(float red, float green, float blue) {
-    LOG_DEBUG(Lib_Hmd, "called, red = {}, green = {}, blue = {}", red, green, blue);
+    // The PlayStation VR's OLED panel smears near-black; titles raise the black level a little
+    // with this. The picture is then shown from that level up (post_process.frag).
+    LOG_INFO(Lib_Hmd, "called, red = {}, green = {}, blue = {}", red, green, blue);
+    const auto level = [](float value) {
+        return std::isfinite(value) ? std::clamp(value, 0.0f, 0.5f) : 0.0f;
+    };
+    std::scoped_lock lock{g_reprojection.mutex};
+    g_reprojection.min_color = {level(red), level(green), level(blue)};
     return ORBIS_OK;
 }
 
