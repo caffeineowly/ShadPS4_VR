@@ -5,11 +5,9 @@ from [AstroQuest](https://github.com/bigmak94/AstroQuest) ported onto it, so PSV
 played in any PC headset through its OpenXR runtime (SteamVR, Meta/Oculus, Virtual Desktop,
 Pimax, WMR, ...).
 
-> **Status: experimental, working with one title.** Fate/Grand Order VR feat. Mash Kyrielight
-> (Unity) runs in a Windows Mixed Reality headset through SteamVR: stereo picture, head and
-> controller tracking, audio. Known issues: black edges when turning (the title runs at half the
-> headset's refresh; try `fov_percent` overscan), shading artifacts in dark areas (under
-> investigation). License review: done, see "License review" below.
+> **Status: experimental.** Two PSVR titles playable in a Windows Mixed Reality headset through
+> SteamVR (Unity and Unreal Engine 4); see `docs/compatibility.md`. License review: done, see
+> "License review" below.
 
 ## Layout of the repository
 
