@@ -129,6 +129,11 @@ FileConfig LoadFileConfig() {
                                      (*it)[2].get<float>()};
             }
             config.pad_follows_head = json.value("pad_anchor", "head") != "seat";
+            // "fov_percent": how much of that field of view the title draws (50..120). Above
+            // 100 is overscan: margin the headset can turn the picture into while the next
+            // frame is on its way, instead of showing black at the edges.
+            config.fov_scale =
+                std::clamp(json.value("fov_percent", 100.0f) / 100.0f, 0.5f, 1.2f);
             // "fov": "headset" (the PC headset's own field of view) or "psvr".
             if (const auto it = json.find("fov"); it != json.end() && it->is_string()) {
                 config.fov_from_headset = it->get<std::string>() != "psvr";

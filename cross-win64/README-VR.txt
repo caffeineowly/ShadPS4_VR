@@ -41,6 +41,10 @@ vr.json in the user folder (see vr.json.example):
   "fov": "headset" | "psvr"   the field of view the game is told of: your headset's
                                own (default; fills the view) or a PlayStation VR's
                                (about 100 x 103 degrees, black border on wider headsets)
+  "fov_percent": 50..120        how much of that the game draws. Above 100 is overscan:
+                               margin for the headset to turn the picture into while
+                               the next frame comes, so no black edge shows when you
+                               turn your head (try 110-120; costs some sharpness)
   "refresh_rate": 60..120 (what the game is told the PSVR refreshes at)
   "ipd_mm": interpupillary distance
   "pad_anchor": "head" | "seat"   where an untracked gamepad is placed

@@ -87,6 +87,8 @@ sources and linked into the exe.
 | U5 | Code in `openxr_host.cpp`, `vk_presenter.cpp`, `driver.cpp` marked "After evertec82/AstroQuest" / "from elliotttate/AstroQuest" | Contributions from other AstroQuest forks, merged upstream into AstroQuest under its GPL-2.0-or-later license | Credited below; check those forks' licenses if you want certainty. |
 | U6 | AstroQuest's `LICENSES/Vortek-LGPL-2.1.txt`, `BachataXServer-LGPL-2.1.txt`, `libdeflate-NOTICE.txt` | Android/Bachata runtime | Not taken. |
 | U7 | PkgTool / LibOrbisPkg (LGPL-3.0), used by AstroQuest's launcher | Separate download | Not taken. |
+| U8 | `docs/screenshots/*.png` | Screenshots of a commercial game (Fate/Grand Order VR, © its owners), not covered by this repo's licenses | Commonly shown by emulator projects, but your call before publishing; credit the game and keep them few. |
+| U9 | Upstream shadPS4's `AGENTS.md` rules for contributions (no game-specific hacks, sparse comments, match style, OpenOrbis hardware tests for emulation changes) | Matter only if any of this is sent upstream as a pull request | The ported AstroQuest code (and `known_title*`) does not follow them yet; would need rework before an upstream PR. |
 
 ## Credits
 

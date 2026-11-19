@@ -1040,7 +1040,11 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
             pp_pass.Render(cmdbuf, regions, *frame, hmd_settings);
         } else {
             pp_pass.Render(cmdbuf, regions_for(*frame), *frame, hmd_settings,
-                           exported ? std::nullopt : std::optional<u32>{frame_id});
+                           // The frame marker lets an external VR host (AstroQuest's
+                           // Quest path through a window) match frames; a PC headset gets
+                           // its frames directly and the mirror is left clean.
+                           exported || local != nullptr ? std::nullopt
+                                                        : std::optional<u32>{frame_id});
         }
         if (exported) {
             vr_exporter->Finalize(frame, cmdbuf);
