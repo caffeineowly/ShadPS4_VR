@@ -13,7 +13,7 @@ Pimax, WMR, ...).
 
 | Path | What |
 | --- | --- |
-| *(everything upstream)* | shadPS4 at `741d9b7` (2026-11-18), history kept; VR work is on branch `vr` |
+| *(everything upstream)* | shadPS4 at `741d9b7` (2026-11-18), imported as the first commit (its own history is in [shadps4-emu/shadPS4](https://github.com/shadps4-emu/shadPS4)); the VR work is every commit after it. Known-good points are tagged `vr-*`. |
 | `src/core/vr/` | VR runtime (poses, seat, pad placement, frame ids), **OpenXR host** (`openxr_host.cpp`), FOV/pacing helpers. From AstroQuest |
 | `src/core/vr/guest_frames.*` | Counter of frames handed to the headset (reduced from AstroQuest's guest watchdog) |
 | `src/core/libraries/hmd/`, `vr_tracker/` | `libSceHmd` / `libSceVrTracker`: headset present, poses, reprojection. From AstroQuest (3-way merged) |
