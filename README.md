@@ -3,6 +3,74 @@ SPDX-FileCopyrightText: 2026 shadPS4 Emulator Project
 SPDX-License-Identifier: GPL-2.0-or-later
 -->
 
+# Shadps4_vr
+
+**Experimental fork of shadPS4 that plays PlayStation VR games on PC VR headsets through
+OpenXR.** The PSVR emulation is ported from [AstroQuest](https://github.com/bigmak94/AstroQuest)
+onto current shadPS4 and extended for more game engines. Developed with AI assistance.
+
+Tested with a **Windows Mixed Reality** headset through **SteamVR's OpenXR runtime** on Windows.
+Other OpenXR runtimes (Meta/Oculus, Virtual Desktop, Pimax, ...) should work but are untested.
+
+<p align="center">
+  <img src="./docs/screenshots/fgo-vr-room-2-crosseye.png" width="49%" alt="Fate/Grand Order VR, room (cross-eye stereo)">
+  <img src="./docs/screenshots/fgo-vr-hall-crosseye.png" width="49%" alt="Fate/Grand Order VR, hall (cross-eye stereo)">
+</p>
+<p align="center">
+  <sub>Fate/Grand Order VR feat. Mash Kyrielight by DELiGHTWORKS / Aniplex, © TYPE-MOON / FGO PROJECT.<br>
+  Each picture is a cross-eye stereo pair (right eye on the left): cross your eyes until the two halves
+  overlap to see it in 3D. Parallel versions are in <a href="./docs/screenshots">docs/screenshots</a>.</sub>
+</p>
+
+## What it adds to shadPS4
+
+- **PSVR headset through OpenXR**: the game's stereo frames go to the PC's headset; head pose,
+  field of view and frame pacing come from the headset's OpenXR runtime.
+- **libSceHmd / libSceVrTracker**: a connected virtual PSVR with head and controller tracking,
+  reprojection (`sceHmdReprojectionStart` and Unity's `sceHmdReprojectionStartMultilayer`), the
+  HMD setup dialog, and the tracker accepting other SDK versions' parameters.
+- **Virtual PlayStation Camera**, so titles that wait for the camera start tracking.
+- **Headset controllers** stand in for the DualShock 4 when no gamepad is connected; a real
+  gamepad's motion sensors steer the tracked controller.
+- **Headset audio**: game sound and microphone go to the headset's devices.
+- **Wider headsets**: titles are told the headset's own field of view, with optional overscan.
+- **Windows fix in the CPU patcher**: red-zone protection also covers functions that reach their
+  red zone through the frame pointer (fixes a crash in Unreal Engine 4 titles).
+
+## Status
+
+| Title | Engine | Status |
+| --- | --- | --- |
+| Fate/Grand Order VR feat. Mash Kyrielight | Unity | Playable |
+| CYBER DANGANRONPA VR THE CLASS TRIAL (demo) | Unreal Engine 4 | Playable (with `redzone_patches`) |
+
+Details, per-game settings and known issues: [docs/compatibility.md](docs/compatibility.md).
+
+## Building and running
+
+Windows x64 builds are cross-compiled on Linux with clang-cl:
+
+```sh
+git clone --recursive git@github.com:caffeineowly/ShadPS4_VR.git
+cd ShadPS4_VR
+cross-win64/build.sh        # -> dist/Shadps4_vr-win64.zip
+```
+
+Unzip on the Windows PC and see `README-VR.txt` inside for requirements, `vr.json` settings and
+controls. Building natively on Windows works as for shadPS4 (below), with `ENABLE_OPENXR` on.
+
+## Credits and licenses
+
+shadPS4 Emulator Project (the emulator), bigmak94 and contributors (AstroQuest, the PSVR and
+OpenXR code), The Khronos Group (OpenXR SDK). GPL-2.0-or-later; the statically linked OpenXR
+loader is Apache-2.0. Full license review and credits: [PROJECT.md](PROJECT.md).
+
+No game files, firmware or keys are included. Use dumps of games you own.
+
+---
+
+<p align="center"><b>The original shadPS4 README follows.</b></p>
+
 <h1 align="center">
   <br>
   <a href="https://shadps4.net/"><img src="https://github.com/shadps4-emu/shadPS4/blob/main/.github/shadps4.png" width="220"></a>
